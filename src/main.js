@@ -1,6 +1,7 @@
 import "./style.css";
 import { ParticleField } from "./particle-field.js";
 import { DepthEstimator } from "./depth-client.js";
+import { createArtisticDepth } from "./artistic-depth.js";
 
 const $ = (id) => document.getElementById(id);
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -53,11 +54,13 @@ function setLoading(value, label = "Les couleurs prennent place…") {
 
 function updateEffectUI() {
   const unavailable = state.loading || !state.image;
-  $("relief-button").disabled = unavailable || state.depthBusy;
+  $("relief-button").disabled = unavailable;
   $("relief-button").setAttribute("aria-pressed", String(state.relief));
   $("relief-button").setAttribute("aria-busy", String(state.depthBusy));
   $("relief-button").classList.toggle("active", state.relief);
-  $("relief-label").textContent = state.depthBusy ? "Calcul…" : "Relief 3D";
+  $("relief-label").textContent = "Relief 3D";
+  $("depth-retry").hidden =
+    !state.image || state.image.depthKind !== "artistic" || state.depthBusy;
   $("wave-button").disabled = unavailable;
   $("wave-button").setAttribute("aria-pressed", String(state.wave));
   $("wave-button").classList.toggle("active", state.wave);
@@ -66,7 +69,7 @@ function updateEffectUI() {
 }
 
 async function toggleRelief() {
-  if (!state.image || state.loading || state.depthBusy) return;
+  if (!state.image || state.loading) return;
   if (state.image.depthMap) {
     state.relief = !state.relief;
     field.setRelief(state.relief);
@@ -74,15 +77,37 @@ async function toggleRelief() {
     return;
   }
   const source = state.image;
+  try {
+    const map = createArtisticDepth(source.image);
+    field.setDepthMap(map);
+    source.depthMap = map;
+    source.depthKind = "artistic";
+    state.relief = true;
+    field.setRelief(true);
+    updateEffectUI();
+  } catch (error) {
+    console.warn("Lecture de la photo pour le relief :", error);
+    toast(
+      "Cette photo n’a pas pu être lue pour créer le relief. Essayez un fichier JPEG ou PNG.",
+    );
+    return;
+  }
+  void improveDepth();
+}
+
+async function improveDepth() {
+  if (!state.image || state.loading || state.depthBusy) return;
+  const source = state.image;
   state.depthBusy = true;
   updateEffectUI();
-  $("depth-status").textContent = "Préparation du relief sur cet appareil…";
+  $("depth-status").textContent =
+    "Relief artistique actif · préparation de l’estimation IA…";
   try {
     const map = await depthEstimator.estimate(source.image, (progress) => {
       if (state.image !== source) return;
       const label =
         progress.stage === "downloading"
-          ? `Téléchargement du modèle : ${Math.round(progress.progress || 0)} %`
+          ? `Relief artistique · modèle IA : ${Math.round(progress.progress || 0)} %`
           : progress.stage === "computing"
             ? "Calcul du relief sur cet appareil…"
             : "Chargement du modèle de profondeur…";
@@ -92,17 +117,15 @@ async function toggleRelief() {
     if (state.image !== source) return;
     field.setDepthMap(map);
     source.depthMap = map;
-    state.relief = true;
-    field.setRelief(true);
+    source.depthKind = "ai";
+    field.setRelief(state.relief);
     $("depth-status").textContent =
-      "Relief prêt · estimation locale de la profondeur.";
+      "Relief affiné par IA · calcul effectué sur cet appareil.";
   } catch (error) {
     if (state.image === source && error.name !== "AbortError") {
+      console.warn("Estimation de profondeur indisponible :", error);
       $("depth-status").textContent =
-        "Relief indisponible. Cliquez sur Relief 3D pour réessayer.";
-      toast(
-        "Le relief n’a pas pu être calculé. Vérifiez votre connexion pour télécharger le modèle, puis réessayez.",
-      );
+        "Relief artistique disponible · l’estimation IA n’a pas abouti.";
     }
   } finally {
     if (state.image === source) {
@@ -275,7 +298,7 @@ async function loadPhoto(source, name, isDemo = false) {
     state.relief = false;
     state.depthBusy = false;
     $("depth-status").textContent =
-      "Relief 3D : téléchargement au premier clic, puis calcul sur cet appareil.";
+      "Relief artistique immédiat · affinage IA sur cet appareil si disponible.";
     state.autoFactor = 1;
     state.adaptations = 0;
     state.frames = 0;
@@ -380,6 +403,9 @@ function setupUI() {
   $("replay-button").addEventListener("click", replay);
   $("relief-button").addEventListener("click", () => {
     void toggleRelief();
+  });
+  $("depth-retry").addEventListener("click", () => {
+    void improveDepth();
   });
   $("wave-button").addEventListener("click", toggleWave);
   $("burst-button").addEventListener("click", triggerExplosion);

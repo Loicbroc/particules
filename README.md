@@ -9,7 +9,7 @@ Application Three.js qui recompose une photo avec un nuage de particules en spir
 - Couleurs et proportions conservées ; transparence des PNG prise en compte.
 - Animation sur le GPU : trois courants en spirale convergent pour former la photo.
 - Envol progressif au survol ou au toucher : chaque particule garde son élan et revient doucement former la photo, même après le passage du pointeur.
-- Relief 2,5D estimé localement avec Depth Anything V2 Small : léger mouvement de parallaxe à la souris et au repos. Le premier clic sur Relief 3D télécharge le modèle ; la photo reste sur l’appareil.
+- Relief 2,5D : un relief artistique est créé immédiatement sur l’appareil, puis affiné avec Depth Anything V2 Small si le modèle est disponible. Un échec du téléchargement ou de l’inférence conserve le relief artistique et permet de réessayer l’IA. Le mode artistique utilise une interprétation des couleurs et de la composition, sans prétendre représenter une profondeur réelle.
 - Vague en profondeur, activable et réglable.
 - Explosion en volume depuis le bouton ou par un clic/toucher bref sur l’image, suivie d’un retour progressif à la photo.
 - Rejouer, pause/reprise, disperser et recomposer.

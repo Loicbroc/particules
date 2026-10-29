@@ -55,8 +55,13 @@ export class DepthEstimator {
           });
         else if (data.type === "error") finish(new Error(data.message));
       };
-      worker.onerror = () =>
-        finish(new Error("Le calcul local du relief n’a pas pu démarrer."));
+      worker.onerror = (event) =>
+        finish(
+          new Error(
+            event.message ||
+              "Le module de calcul local du relief n’a pas pu démarrer.",
+          ),
+        );
       worker.postMessage(
         {
           id,
