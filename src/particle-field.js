@@ -6,11 +6,12 @@ import {
   Float32BufferAttribute,
   Group,
   MathUtils,
+  Matrix4,
   PerspectiveCamera,
-  Plane,
   Points,
   PointsMaterial,
   Raycaster,
+  Ray,
   Scene,
   ShaderMaterial,
   SRGBColorSpace,
@@ -19,11 +20,18 @@ import {
   WebGLRenderer,
 } from "three";
 import { FlightBrush } from "./flight-brush.js";
+import {
+  explosionEnvelope,
+  sampleDepth,
+  validateDepthMap,
+  waveHeight,
+} from "./surface-effects.js";
 
-const vertexShader = /* glsl */ `
+export const vertexShader = /* glsl */ `
   attribute vec4 aRandom;
   attribute float aOpacity;
   attribute vec4 aFlight;
+  attribute float aDepth;
   uniform float uTime;
   uniform float uProgress;
   uniform float uSwirl;
@@ -31,6 +39,11 @@ const vertexShader = /* glsl */ `
   uniform float uPixelRatio;
   uniform float uInteractionTime;
   uniform float uMotion;
+  uniform float uDepth;
+  uniform float uWave;
+  uniform float uBurst;
+  uniform float uWorldScale;
+  uniform vec2 uCenter;
   varying vec3 vColor;
   varying float vOpacity;
   varying float vFormed;
@@ -49,6 +62,14 @@ const vertexShader = /* glsl */ `
     );
     vortex.y += sin(angle * 2.0 + lane) * 0.18;
     vec3 target = position;
+    float depth = (aDepth - 0.5) * uDepth;
+    // Preserve the original photograph when viewed head-on, then reveal its
+    // depth through a small orbit. Wave displacement remains uncompensated.
+    target.xy = position.xy * (1.0 - depth * uWorldScale / 7.0) - uCenter * depth / 7.0;
+    target.z = depth;
+    float wavePhase = position.x * 3.2 + position.y * 1.1 - uTime * 1.65;
+    target.z += sin(wavePhase) * uWave;
+    target.y += cos(wavePhase) * uWave * 0.065;
     target.z += sin(uTime * 0.55 + position.x * 2.0 + position.y) * 0.012 * uMotion;
     vec3 pos = mix(vortex, target, p);
     float age = uInteractionTime - aFlight.x;
@@ -71,16 +92,25 @@ const vertexShader = /* glsl */ `
       pos += flight;
       airborne = clamp(length(flight), 0.0, 1.0);
     }
+    if (uBurst > 0.0) {
+      float theta = aRandom.x * 6.2831853;
+      float zDirection = aRandom.y * 2.0 - 1.0;
+      float ring = sqrt(max(0.0, 1.0 - zDirection * zDirection));
+      vec3 direction = vec3(cos(theta) * ring, sin(theta) * ring, zDirection * 0.38);
+      pos += direction * (1.7 + aRandom.z * 2.3) * uBurst * p;
+      airborne = max(airborne, min(1.0, uBurst));
+    }
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = clamp(uSize * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.35, 1.0, p) * mix(1.0, 0.7, airborne), 1.0, 30.0);
+    float depthFootprint = mix(1.0, (7.0 - depth * uWorldScale) / 7.0, p);
+    gl_PointSize = clamp(uSize * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * depthFootprint * mix(1.35, 1.0, p) * mix(1.0, 0.7, airborne), 1.0, 30.0);
     vColor = color;
     vOpacity = aOpacity * mix(0.62, 1.0, p);
     vFormed = p * (1.0 - airborne * 0.45);
   }
 `;
 
-const fragmentShader = /* glsl */ `
+export const fragmentShader = /* glsl */ `
   varying vec3 vColor;
   varying float vOpacity;
   varying float vFormed;
@@ -135,13 +165,24 @@ export class ParticleField {
     this.group = new Group();
     this.scene.add(this.group);
     this.raycaster = new Raycaster();
-    this.plane = new Plane(new Vector3(0, 0, 1), 0);
+    this.localRay = new Ray();
+    this.inverseMatrix = new Matrix4();
+    this.ndc = new Vector2();
     this.hit = new Vector3();
     this.pointer = new Vector2(100, 100);
     this.pointerTarget = new Vector2(100, 100);
     this.pointerActive = 0;
     this.interactionTime = 0;
     this.lastBrush = null;
+    this.view = new Vector2();
+    this.viewTarget = new Vector2();
+    this.viewAmount = 0;
+    this.reducedMotion = reducedMotion;
+    this.currentTime = 0;
+    this.explosionStart = -100;
+    this.depthMap = null;
+    this.sourceImage = null;
+    this.effects = { relief: false, wave: false, depth: 0.55, intensity: 0.65 };
     this.zoom = 1;
     this.aspect = 1.5;
     this.gridWidth = 400;
@@ -154,6 +195,11 @@ export class ParticleField {
       uPixelRatio: { value: this.renderer.getPixelRatio() },
       uInteractionTime: { value: 0 },
       uMotion: { value: reducedMotion ? 0 : 1 },
+      uDepth: { value: 0 },
+      uWave: { value: 0 },
+      uBurst: { value: 0 },
+      uWorldScale: { value: 1 },
+      uCenter: { value: new Vector2() },
     };
     this.material = new ShaderMaterial({
       uniforms: this.uniforms,
@@ -251,11 +297,27 @@ export class ParticleField {
     this.aspect = aspect;
     this.gridWidth = gridWidth;
     this.gridHeight = gridHeight;
+    if (this.sourceImage !== image) {
+      this.sourceImage = image;
+      this.depthMap = null;
+      this.effects.relief = false;
+      this.explosionStart = -100;
+    }
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
     geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     geometry.setAttribute("aRandom", new Float32BufferAttribute(randoms, 4));
     geometry.setAttribute("aOpacity", new Float32BufferAttribute(opacities, 1));
+    const depths = new Float32Array(opacities.length);
+    for (let i = 0; i < depths.length; i++) {
+      depths[i] = sampleDepth(
+        this.depthMap,
+        positions[i * 3] / (aspect * 2) + 0.5,
+        0.5 - positions[i * 3 + 1] / 2,
+      );
+    }
+    this.depthAttribute = new BufferAttribute(depths, 1);
+    geometry.setAttribute("aDepth", this.depthAttribute);
     this.flightBrush = new FlightBrush(
       gridWidth,
       gridHeight,
@@ -299,7 +361,7 @@ export class ParticleField {
     const sidebar = desktop ? (width > 1100 ? 330 : 290) : 0;
     const landscape = !desktop && height < 520;
     const availableWidth = width - sidebar - (desktop ? 70 : 34);
-    const availableHeight = height - (landscape ? 150 : desktop ? 255 : 285);
+    const availableHeight = height - (landscape ? 200 : desktop ? 385 : 405);
     const imageWidth = Math.min(
       availableWidth,
       Math.max(60, availableHeight) * this.aspect,
@@ -309,10 +371,15 @@ export class ParticleField {
     this.group.scale.setScalar(this.baseScale * this.zoom);
     this.group.position.set(
       sidebar * 0.5 * unit,
-      (landscape ? 2 : desktop ? 8 : 16) * unit,
+      (landscape ? 25 : desktop ? 43 : 72) * unit,
       0,
     );
     this.group.updateMatrixWorld(true);
+    this.uniforms.uWorldScale.value = this.baseScale * this.zoom;
+    this.uniforms.uCenter.value.set(
+      this.group.position.x,
+      this.group.position.y,
+    );
     // Slightly overlapping discs keep the completed image readable.
     this.uniforms.uSize.value =
       Math.max(1.0, (imageWidth / this.gridWidth) * 1.65) * this.zoom;
@@ -330,18 +397,102 @@ export class ParticleField {
 
   setPointer(clientX, clientY) {
     const bounds = this.container.getBoundingClientRect();
-    const ndc = new Vector2(
+    this.ndc.set(
       ((clientX - bounds.left) / bounds.width) * 2 - 1,
       (-(clientY - bounds.top) / bounds.height) * 2 + 1,
     );
+    const sidebar = this.width > 900 ? (this.width > 1100 ? 330 : 290) : 0;
+    this.viewTarget.set(
+      MathUtils.clamp(
+        (clientX - bounds.left - (bounds.width + sidebar) / 2) /
+          Math.max(1, (bounds.width - sidebar) / 2),
+        -1,
+        1,
+      ),
+      MathUtils.clamp(
+        (clientY - bounds.top - bounds.height / 2) / (bounds.height / 2),
+        -1,
+        1,
+      ),
+    );
+    const wasActive = this.pointerActive;
+    this.pointerActive = 1;
+    this.projectPointer();
+    if (!wasActive) this.pointer.copy(this.pointerTarget);
+  }
+
+  projectPointer() {
     this.camera.updateMatrixWorld();
-    this.raycaster.setFromCamera(ndc, this.camera);
-    if (this.raycaster.ray.intersectPlane(this.plane, this.hit)) {
-      this.group.worldToLocal(this.hit);
-      if (!this.pointerActive) this.pointer.copy(this.hit);
-      this.pointerTarget.set(this.hit.x, this.hit.y);
-      this.pointerActive = 1;
+    this.group.updateMatrixWorld(true);
+    this.raycaster.setFromCamera(this.ndc, this.camera);
+    this.localRay
+      .copy(this.raycaster.ray)
+      .applyMatrix4(this.inverseMatrix.copy(this.group.matrixWorld).invert());
+    const ray = this.localRay;
+    if (Math.abs(ray.direction.z) < 0.01) return;
+    let z = 0,
+      depth = 0,
+      x = 0,
+      y = 0;
+    for (let i = 0; i < 4; i++) {
+      const t = (z - ray.origin.z) / ray.direction.z;
+      const compensation = 1 - (depth * this.uniforms.uWorldScale.value) / 7;
+      x =
+        (ray.origin.x +
+          ray.direction.x * t +
+          (this.group.position.x * depth) / 7) /
+        compensation;
+      y =
+        (ray.origin.y +
+          ray.direction.y * t +
+          (this.group.position.y * depth) / 7) /
+        compensation;
+      depth =
+        (sampleDepth(this.depthMap, x / (this.aspect * 2) + 0.5, 0.5 - y / 2) -
+          0.5) *
+        this.uniforms.uDepth.value;
+      z = depth + waveHeight(x, y, this.currentTime, this.uniforms.uWave.value);
     }
+    this.pointerTarget.set(x, y);
+  }
+
+  setDepthMap(map) {
+    this.depthMap = validateDepthMap(map);
+    if (!this.points) return;
+    const positions = this.points.geometry.getAttribute("position").array;
+    for (let i = 0; i < this.depthAttribute.count; i++) {
+      this.depthAttribute.array[i] = sampleDepth(
+        map,
+        positions[i * 3] / (this.aspect * 2) + 0.5,
+        0.5 - positions[i * 3 + 1] / 2,
+      );
+    }
+    this.depthAttribute.needsUpdate = true;
+  }
+
+  setRelief(enabled) {
+    this.effects.relief = Boolean(enabled && this.depthMap);
+  }
+  setWave(enabled) {
+    this.effects.wave = Boolean(enabled);
+  }
+  setDepthAmount(value) {
+    this.effects.depth = MathUtils.clamp(value, 0, 1);
+  }
+  setEffectIntensity(value) {
+    this.effects.intensity = MathUtils.clamp(value, 0, 1);
+  }
+  resetExplosion() {
+    this.explosionStart = -100;
+  }
+  explode() {
+    if (!this.points || this.uniforms.uProgress.value < 0.97) return false;
+    this.explosionStart = this.currentTime;
+    return true;
+  }
+  get exploding() {
+    const age = this.currentTime - this.explosionStart;
+    return age >= 0 && age < 5.8;
   }
 
   clearPointer() {
@@ -352,12 +503,40 @@ export class ParticleField {
   render(delta, time) {
     if (this.contextLost) return;
     this.uniforms.uTime.value = time;
+    this.currentTime = time;
+    this.uniforms.uDepth.value = MathUtils.damp(
+      this.uniforms.uDepth.value,
+      this.effects.relief ? this.effects.depth * 1.05 : 0,
+      5,
+      delta,
+    );
+    this.uniforms.uWave.value = MathUtils.damp(
+      this.uniforms.uWave.value,
+      this.effects.wave ? 0.13 + this.effects.intensity * 0.4 : 0,
+      5,
+      delta,
+    );
+    this.uniforms.uBurst.value =
+      explosionEnvelope(time - this.explosionStart) *
+      (0.45 + this.effects.intensity * 0.85);
+    const orbitX = this.reducedMotion ? 0 : Math.sin(time * 0.32) * 0.5;
+    const orbitY = this.reducedMotion ? 0 : Math.cos(time * 0.25) * 0.28;
+    const viewX = this.pointerActive ? this.viewTarget.x : orbitX;
+    const viewY = this.pointerActive ? this.viewTarget.y : orbitY;
+    this.view.x = MathUtils.damp(this.view.x, viewX, 4, delta);
+    this.view.y = MathUtils.damp(this.view.y, viewY, 4, delta);
+    this.viewAmount = MathUtils.damp(this.viewAmount, this.effects.relief ? 1 : this.effects.wave ? 0.3 : 0, 5, delta);
+    const viewAmount = this.viewAmount;
+    this.group.rotation.y = this.view.x * 0.22 * viewAmount;
+    this.group.rotation.x = this.view.y * 0.13 * viewAmount;
     this.interactionTime += delta;
     this.uniforms.uInteractionTime.value = this.interactionTime;
+    if (this.pointerActive) this.projectPointer();
     this.pointer.lerp(this.pointerTarget, 1 - Math.exp(-delta * 20));
     if (
       this.pointerActive &&
       this.flightBrush &&
+      !this.exploding &&
       this.uniforms.uProgress.value > 0.75
     ) {
       const start = this.lastBrush || this.pointer;

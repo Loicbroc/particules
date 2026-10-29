@@ -64,6 +64,18 @@
           d="M8 13V5a2 2 0 0 1 4 0v7-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-2c-2 0-4-1-5-3l-3-5a2 2 0 0 1 3-2l1 1"
         />
       </symbol>
+      <symbol id="i-depth" viewBox="0 0 24 24">
+        <path d="m12 3 9 5-9 5-9-5 9-5Zm-8 9 8 5 8-5M4 16l8 5 8-5" />
+      </symbol>
+      <symbol id="i-wave" viewBox="0 0 24 24">
+        <path d="M2 8c4-7 6 7 10 0s6 7 10 0M2 16c4-7 6 7 10 0s6 7 10 0" />
+      </symbol>
+      <symbol id="i-burst" viewBox="0 0 24 24">
+        <path
+          d="M12 2v4m0 12v4M2 12h4m12 0h4M5 5l3 3m8 8 3 3M5 19l3-3m8-8 3-3"
+        />
+        <circle cx="12" cy="12" r="3" />
+      </symbol>
     </svg>
 
     <main id="app" aria-label="Atelier de photographie en particules">
@@ -154,8 +166,8 @@
             Revenir à l’image d’exemple
           </button>
         </div>
-        <div class="control-section settings-section">
-          <span class="section-label">02 <span>LE MOUVEMENT</span></span>
+        <details class="control-section settings-section movement-settings">
+          <summary class="section-label">02 <span>LE MOUVEMENT</span></summary>
           <label class="range-label" for="duration"
             >Durée de formation<output id="duration-value" for="duration"
               >8 s</output
@@ -193,7 +205,44 @@
               Auto</button
             ><button data-quality="high" aria-pressed="false">Détail</button>
           </div>
-        </div>
+        </details>
+        <details class="control-section settings-section effects-settings" open>
+          <summary class="section-label">03 <span>LES EFFETS 3D</span></summary>
+          <label class="range-label" for="depth-amount"
+            >Profondeur du relief<output
+              id="depth-amount-value"
+              for="depth-amount"
+              >55 %</output
+            ></label
+          >
+          <input
+            class="range"
+            id="depth-amount"
+            type="range"
+            min="0"
+            max="100"
+            value="55"
+          />
+          <label class="range-label" for="effect-intensity"
+            >Intensité vague / explosion<output
+              id="effect-intensity-value"
+              for="effect-intensity"
+              >65 %</output
+            ></label
+          >
+          <input
+            class="range"
+            id="effect-intensity"
+            type="range"
+            min="0"
+            max="100"
+            value="65"
+          />
+          <p id="depth-status" class="depth-status" aria-live="polite">
+            Relief 3D : téléchargement au premier clic, puis calcul sur cet
+            appareil.
+          </p>
+        </details>
         <p class="privacy">
           <svg><use href="#i-lock" /></svg>Votre photo reste sur cet appareil.
         </p>
@@ -205,10 +254,30 @@
         ><span id="progress-label"></span>
       </div>
       <div class="scene-bottom">
+        <div
+          class="effect-shortcuts"
+          role="group"
+          aria-label="Effets de l’image"
+        >
+          <button class="effect-button" id="relief-button" aria-pressed="false">
+            <svg><use href="#i-depth" /></svg
+            ><span id="relief-label">Relief 3D</span>
+          </button>
+          <button class="effect-button" id="wave-button" aria-pressed="false">
+            <svg><use href="#i-wave" /></svg><span>Vague</span>
+          </button>
+          <button
+            class="effect-button"
+            id="burst-button"
+            title="Disponible une fois l’image formée"
+          >
+            <svg><use href="#i-burst" /></svg><span>Explosion</span>
+          </button>
+        </div>
         <p class="interaction-hint">
           <svg><use href="#i-hand" /></svg
           ><span id="interaction-hint"
-            >Survolez l’image pour faire s’envoler les particules</span
+            >Survolez pour l’envol · Cliquez pour l’explosion</span
           >
         </p>
         <div class="transport" aria-label="Commandes de l’animation">
@@ -296,12 +365,26 @@
         particules tournent dans l’espace avant de retrouver leur place.
       </p>
       <ul>
-        <li>Approchez la souris ou le doigt pour faire décoller les particules. Elles reviennent ensuite former l’image.</li>
+        <li>
+          Approchez la souris ou le doigt pour faire décoller les particules.
+          Elles reviennent ensuite former l’image.
+        </li>
         <li>
           Utilisez <strong>Disperser</strong> puis <strong>Recomposer</strong>,
           ou <strong>Rejouer</strong>.
         </li>
         <li>Zoomez avec la molette ou en pinçant à deux doigts.</li>
+        <li>
+          <strong>Vague</strong> anime la surface. <strong>Explosion</strong>,
+          ou un clic sur l’image, disperse les particules en volume puis les
+          ramène.
+        </li>
+        <li>
+          <strong>Relief 3D</strong> estime la profondeur sur votre appareil,
+          puis active une légère parallaxe. Le modèle se télécharge au premier
+          clic. Une photo seule permet un relief interprété, à explorer sous de
+          petits angles.
+        </li>
         <li>
           Sur ordinateur : <kbd>Espace</kbd> pause, <kbd>R</kbd> rejouer,
           <kbd>F</kbd> plein écran.

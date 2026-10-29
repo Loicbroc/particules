@@ -9,6 +9,9 @@ Application Three.js qui recompose une photo avec un nuage de particules en spir
 - Couleurs et proportions conservées ; transparence des PNG prise en compte.
 - Animation sur le GPU : trois courants en spirale convergent pour former la photo.
 - Envol progressif au survol ou au toucher : chaque particule garde son élan et revient doucement former la photo, même après le passage du pointeur.
+- Relief 2,5D estimé localement avec Depth Anything V2 Small : léger mouvement de parallaxe à la souris et au repos. Le premier clic sur Relief 3D télécharge le modèle ; la photo reste sur l’appareil.
+- Vague en profondeur, activable et réglable.
+- Explosion en volume depuis le bouton ou par un clic/toucher bref sur l’image, suivie d’un retour progressif à la photo.
 - Rejouer, pause/reprise, disperser et recomposer.
 - Durée de formation et intensité du tourbillon réglables.
 - Densité Fluide / Auto / Détail. Auto réduit la densité lorsque le rythme d’affichage devient trop faible.
@@ -35,7 +38,7 @@ npm ci
 npm run dev
 ```
 
-Vite regroupe le code et Three.js dans des fichiers distincts. L’image d’exemple et toutes les dépendances sont servies depuis le même site : aucun CDN n’est requis à l’exécution.
+Vite regroupe le code et Three.js dans des fichiers distincts. L’expérience de base est servie depuis le même site. Le relief est optionnel : un Web Worker télécharge Transformers.js 3.8.1 depuis jsDelivr, puis le modèle quantifié depuis Hugging Face. Aucun pixel de la photo n’est envoyé à ces services. Le calcul utilise WebAssembly sur l’appareil et les fichiers du modèle peuvent être conservés dans le cache du navigateur.
 
 ```bash
 npm run build        # Produit dist/

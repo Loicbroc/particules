@@ -1,5 +1,6 @@
 import "./style.css";
 import { ParticleField } from "./particle-field.js";
+import { DepthEstimator } from "./depth-client.js";
 
 const $ = (id) => document.getElementById(id);
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -19,7 +20,11 @@ const state = {
   adaptations: 0,
   frames: 0,
   frameMean: 16.7,
+  relief: false,
+  wave: false,
+  depthBusy: false,
 };
+const depthEstimator = new DepthEstimator();
 let field;
 let toastTimer;
 let uiTime = 0;
@@ -43,6 +48,84 @@ function setLoading(value, label = "Les couleurs prennent place…") {
     $(id).disabled = value || !state.image;
   for (const button of document.querySelectorAll("[data-quality]"))
     button.disabled = value;
+  updateEffectUI();
+}
+
+function updateEffectUI() {
+  const unavailable = state.loading || !state.image;
+  $("relief-button").disabled = unavailable || state.depthBusy;
+  $("relief-button").setAttribute("aria-pressed", String(state.relief));
+  $("relief-button").setAttribute("aria-busy", String(state.depthBusy));
+  $("relief-button").classList.toggle("active", state.relief);
+  $("relief-label").textContent = state.depthBusy ? "Calcul…" : "Relief 3D";
+  $("wave-button").disabled = unavailable;
+  $("wave-button").setAttribute("aria-pressed", String(state.wave));
+  $("wave-button").classList.toggle("active", state.wave);
+  $("burst-button").disabled = unavailable || state.progress < 0.999;
+  $("burst-button").classList.toggle("active", Boolean(field?.exploding));
+}
+
+async function toggleRelief() {
+  if (!state.image || state.loading || state.depthBusy) return;
+  if (state.image.depthMap) {
+    state.relief = !state.relief;
+    field.setRelief(state.relief);
+    updateEffectUI();
+    return;
+  }
+  const source = state.image;
+  state.depthBusy = true;
+  updateEffectUI();
+  $("depth-status").textContent = "Préparation du relief sur cet appareil…";
+  try {
+    const map = await depthEstimator.estimate(source.image, (progress) => {
+      if (state.image !== source) return;
+      const label =
+        progress.stage === "downloading"
+          ? `Téléchargement du modèle : ${Math.round(progress.progress || 0)} %`
+          : progress.stage === "computing"
+            ? "Calcul du relief sur cet appareil…"
+            : "Chargement du modèle de profondeur…";
+      if ($("depth-status").textContent !== label)
+        $("depth-status").textContent = label;
+    });
+    if (state.image !== source) return;
+    field.setDepthMap(map);
+    source.depthMap = map;
+    state.relief = true;
+    field.setRelief(true);
+    $("depth-status").textContent =
+      "Relief prêt · estimation locale de la profondeur.";
+  } catch (error) {
+    if (state.image === source && error.name !== "AbortError") {
+      $("depth-status").textContent =
+        "Relief indisponible. Cliquez sur Relief 3D pour réessayer.";
+      toast(
+        "Le relief n’a pas pu être calculé. Vérifiez votre connexion pour télécharger le modèle, puis réessayez.",
+      );
+    }
+  } finally {
+    if (state.image === source) {
+      state.depthBusy = false;
+      updateEffectUI();
+    }
+  }
+}
+
+function toggleWave() {
+  if (!state.image || state.loading) return;
+  state.wave = !state.wave;
+  state.paused = false;
+  field.setWave(state.wave);
+  updateUI();
+}
+
+function triggerExplosion() {
+  if (!state.image || state.loading || state.progress < 0.999) return;
+  state.paused = false;
+  field.clearPointer();
+  field.explode();
+  updateUI();
 }
 
 function budget(factor = state.autoFactor) {
@@ -97,8 +180,13 @@ function updateUI() {
   } else if (state.transition?.to === 0) {
     label = "L’image se libère";
     phase = "dispersing";
+  } else if (field?.exploding) {
+    label = "L’image éclate dans l’espace";
+    phase = "exploding";
   } else if (state.progress >= 0.999) {
-    label = "L’image a trouvé sa forme";
+    label = state.wave
+      ? "Une vague traverse l’image"
+      : "L’image a trouvé sa forme";
     phase = "formed";
   } else if (!state.transition) {
     label = "Les particules en liberté";
@@ -107,6 +195,7 @@ function updateUI() {
   if ($("status-label").textContent !== label)
     $("status-label").textContent = label;
   $("scene").dataset.state = phase;
+  updateEffectUI();
 }
 
 function transitionTo(to, seconds, after) {
@@ -130,6 +219,7 @@ function replay() {
   if (!state.image || state.loading) return;
   field.setZoom(1);
   field.clearPointer();
+  field.resetExplosion();
   if (state.progress < 0.02) form();
   else transitionTo(0, reducedMotion ? 0.3 : 1.15, form);
 }
@@ -179,8 +269,13 @@ async function loadPhoto(source, name, isDemo = false) {
       return;
     }
     field.setImage(image, budget(1));
+    depthEstimator.cancel();
     if (state.image?.ownedURL) URL.revokeObjectURL(state.image.url);
     state.image = { image, url, name, isDemo, ownedURL };
+    state.relief = false;
+    state.depthBusy = false;
+    $("depth-status").textContent =
+      "Relief 3D : téléchargement au premier clic, puis calcul sur cet appareil.";
     state.autoFactor = 1;
     state.adaptations = 0;
     state.frames = 0;
@@ -283,6 +378,23 @@ function setupUI() {
     void loadPhoto("/demo-lac.jpg", "Lac de Braies", true);
   });
   $("replay-button").addEventListener("click", replay);
+  $("relief-button").addEventListener("click", () => {
+    void toggleRelief();
+  });
+  $("wave-button").addEventListener("click", toggleWave);
+  $("burst-button").addEventListener("click", triggerExplosion);
+  for (const id of ["depth-amount", "effect-intensity"]) {
+    const input = $(id);
+    const refresh = () => {
+      input.style.setProperty("--fill", `${input.value}%`);
+      $(`${id}-value`).textContent = `${input.value} %`;
+      if (id === "depth-amount")
+        field?.setDepthAmount(Number(input.value) / 100);
+      else field?.setEffectIntensity(Number(input.value) / 100);
+    };
+    input.addEventListener("input", refresh);
+    refresh();
+  }
   $("pause-button").addEventListener("click", togglePause);
   $("scatter-button").addEventListener("click", () => {
     if (!state.image || state.loading) return;
@@ -293,7 +405,7 @@ function setupUI() {
       form();
     else transitionTo(0, reducedMotion ? 0.3 : 2.2);
   });
-  for (const input of document.querySelectorAll(".range")) {
+  for (const input of document.querySelectorAll("#duration, #swirl")) {
     const refresh = () => {
       input.style.setProperty(
         "--fill",
@@ -407,7 +519,7 @@ function setupUI() {
   });
   if (touchDevice)
     $("interaction-hint").textContent =
-      "Glissez pour faire s’envoler les particules · Pincez pour zoomer";
+      "Glissez pour l’envol · Touchez pour l’explosion · Pincez pour zoomer";
 }
 
 function setupPointer() {
@@ -415,11 +527,19 @@ function setupPointer() {
   const pointers = new Map();
   let pinchDistance = 0;
   let pinchZoom = 1;
+  let tapStart = null;
   const distance = () => {
     const [a, b] = [...pointers.values()];
     return Math.hypot(a.x - b.x, a.y - b.y);
   };
   canvas.addEventListener("pointerdown", (event) => {
+    if (pointers.size === 0)
+      tapStart = {
+        x: event.clientX,
+        y: event.clientY,
+        time: performance.now(),
+      };
+    else tapStart = null;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.setPointerCapture(event.pointerId);
     if (pointers.size === 2) {
@@ -439,11 +559,19 @@ function setupPointer() {
       field.setPointer(event.clientX, event.clientY);
   });
   const release = (event) => {
+    const tapped =
+      event.type === "pointerup" &&
+      pointers.size === 1 &&
+      tapStart &&
+      performance.now() - tapStart.time < 500 &&
+      Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) < 7;
     pointers.delete(event.pointerId);
     pinchDistance = 0;
     field.clearPointer();
     if (canvas.hasPointerCapture(event.pointerId))
       canvas.releasePointerCapture(event.pointerId);
+    if (tapped) triggerExplosion();
+    if (!pointers.size) tapStart = null;
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
@@ -523,6 +651,8 @@ async function start() {
       },
     });
     field.uniforms.uSwirl.value = 0.2 + (Number($("swirl").value) / 100) * 1.5;
+    field.setDepthAmount(Number($("depth-amount").value) / 100);
+    field.setEffectIntensity(Number($("effect-intensity").value) / 100);
     setupPointer();
     document.addEventListener("visibilitychange", () => {
       cancelAnimationFrame(frameId);
