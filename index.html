@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#070a0f" />
+    <meta
+      name="description"
+      content="Transformez votre photo en un nuage de particules tournoyantes. Une expérience Three.js interactive, directement dans votre navigateur."
+    />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>Particules — La photographie en mouvement</title>
+  </head>
+  <body>
+    <svg
+      class="icon-library"
+      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24">
+        <path d="M3 10a9 9 0 1 1 2 8M3 4v6h6" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <path d="M8 5v14M16 5v14" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path d="m8 5 11 7-11 7Z" />
+      </symbol>
+      <symbol id="i-scatter" viewBox="0 0 24 24">
+        <path
+          d="m8 8-5-5m13 5 5-5M8 16l-5 5m13-5 5 5M3 8V3h5m8 0h5v5M3 16v5h5m8 0h5v-5"
+        />
+      </symbol>
+      <symbol id="i-gather" viewBox="0 0 24 24">
+        <path
+          d="m3 3 6 6m12-6-6 6M3 21l6-6m12 6-6-6M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"
+        />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 17h16M8 4v6m8 4v6" />
+      </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6m0-10v.2" />
+      </symbol>
+      <symbol id="i-fullscreen" viewBox="0 0 24 24">
+        <path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M6 18 18 6" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="5" y="10" width="14" height="11" rx="3" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </symbol>
+      <symbol id="i-hand" viewBox="0 0 24 24">
+        <path
+          d="M8 13V5a2 2 0 0 1 4 0v7-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-2c-2 0-4-1-5-3l-3-5a2 2 0 0 1 3-2l1 1"
+        />
+      </symbol>
+    </svg>
+
+    <main id="app" aria-label="Atelier de photographie en particules">
+      <div
+        id="scene"
+        role="img"
+        aria-label="Photo reconstruite par un nuage de particules interactif"
+      ></div>
+      <div class="ambient" aria-hidden="true"></div>
+      <header class="header">
+        <a class="brand" href="/" aria-label="Particules, accueil"
+          ><span class="brand-mark" aria-hidden="true"
+            ><i></i><i></i><i></i><i></i><i></i></span
+          >particules<span class="brand-dot">.</span></a
+        >
+        <span class="header-caption">LA PHOTOGRAPHIE EN MOUVEMENT</span>
+        <div class="header-actions">
+          <button
+            class="icon-button mobile-settings"
+            id="settings-button"
+            aria-label="Ouvrir les réglages"
+            aria-controls="controls"
+            aria-expanded="false"
+          >
+            <svg><use href="#i-settings" /></svg>
+          </button>
+          <button
+            class="icon-button"
+            id="fullscreen-button"
+            aria-label="Passer en plein écran"
+            title="Plein écran (F)"
+          >
+            <svg><use href="#i-fullscreen" /></svg>
+          </button>
+          <button
+            class="icon-button"
+            id="info-button"
+            aria-label="À propos et mode d’emploi"
+            title="À propos"
+          >
+            <svg><use href="#i-info" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <button
+        class="drawer-scrim"
+        id="drawer-scrim"
+        aria-label="Fermer les réglages"
+        tabindex="-1"
+        hidden
+      ></button>
+      <aside class="controls" id="controls" aria-label="Photo et réglages">
+        <button
+          class="icon-button drawer-close"
+          id="drawer-close"
+          aria-label="Fermer les réglages"
+        >
+          <svg><use href="#i-close" /></svg>
+        </button>
+        <div class="intro">
+          <p class="eyebrow"><span></span> ATELIER INTERACTIF</p>
+          <h1>Une photo.<br />Mille trajectoires.</h1>
+          <p class="intro-copy">
+            Laissez vos images<br />prendre une autre forme.
+          </p>
+        </div>
+        <div class="control-section photo-section">
+          <span class="section-label">01 <span>VOTRE IMAGE</span></span>
+          <button id="upload-button" class="upload-button">
+            <svg><use href="#i-plus" /></svg>Importer une photo
+          </button>
+          <input id="file-input" type="file" accept="image/*" hidden />
+          <p class="drop-hint">ou glissez-la dans la scène</p>
+          <div class="current-image">
+            <img
+              id="thumbnail"
+              alt="Aperçu de la photo utilisée"
+              src="/demo-lac.jpg"
+            />
+            <div>
+              <span id="image-name" title="Lac de Braies">Lac de Braies</span
+              ><small id="image-dimensions">Image de démonstration</small>
+            </div>
+            <span class="image-dot" aria-hidden="true"></span>
+          </div>
+          <button id="demo-button" class="text-button" hidden>
+            Revenir à l’image d’exemple
+          </button>
+        </div>
+        <div class="control-section settings-section">
+          <span class="section-label">02 <span>LE MOUVEMENT</span></span>
+          <label class="range-label" for="duration"
+            >Durée de formation<output id="duration-value" for="duration"
+              >8 s</output
+            ></label
+          >
+          <input
+            class="range"
+            id="duration"
+            type="range"
+            min="3"
+            max="18"
+            step="1"
+            value="8"
+          />
+          <label class="range-label" for="swirl"
+            >Tourbillon<output id="swirl-value" for="swirl">65 %</output></label
+          >
+          <input
+            class="range"
+            id="swirl"
+            type="range"
+            min="10"
+            max="100"
+            step="1"
+            value="65"
+          />
+          <span class="range-label density-label">Densité</span>
+          <div
+            class="quality-options"
+            role="group"
+            aria-label="Densité de particules"
+          >
+            <button data-quality="eco" aria-pressed="false">Fluide</button
+            ><button class="active" data-quality="auto" aria-pressed="true">
+              Auto</button
+            ><button data-quality="high" aria-pressed="false">Détail</button>
+          </div>
+        </div>
+        <p class="privacy">
+          <svg><use href="#i-lock" /></svg>Votre photo reste sur cet appareil.
+        </p>
+      </aside>
+
+      <div class="scene-status" aria-live="polite">
+        <span class="status-dot"></span
+        ><span id="status-label">Préparation de l’expérience</span
+        ><span id="progress-label"></span>
+      </div>
+      <div class="scene-bottom">
+        <p class="interaction-hint">
+          <svg><use href="#i-hand" /></svg
+          ><span id="interaction-hint"
+            >Survolez l’image pour déplacer les particules</span
+          >
+        </p>
+        <div class="transport" aria-label="Commandes de l’animation">
+          <button
+            class="transport-button"
+            id="replay-button"
+            title="Rejouer (R)"
+          >
+            <svg><use href="#i-replay" /></svg><span>Rejouer</span>
+          </button>
+          <span class="transport-separator"></span>
+          <button
+            class="play-button"
+            id="pause-button"
+            aria-label="Mettre en pause"
+            aria-pressed="false"
+            title="Pause (Espace)"
+          >
+            <svg><use id="pause-icon" href="#i-pause" /></svg>
+          </button>
+          <span class="transport-separator"></span>
+          <button class="transport-button" id="scatter-button">
+            <svg><use id="scatter-icon" href="#i-scatter" /></svg
+            ><span id="scatter-label">Disperser</span>
+          </button>
+        </div>
+        <div
+          class="timeline"
+          role="progressbar"
+          aria-label="Formation de la photo"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <div id="timeline-fill"></div>
+        </div>
+      </div>
+      <footer class="footer">
+        <span class="local-badge"><span></span>TRAITEMENT LOCAL</span
+        ><span id="particle-count">Chargement…</span
+        ><button
+          id="mobile-upload"
+          class="mobile-upload"
+          aria-label="Importer une photo"
+        >
+          <svg><use href="#i-plus" /></svg>Photo
+        </button>
+      </footer>
+      <div id="drop-overlay" class="drop-overlay" hidden>
+        <div>
+          <svg><use href="#i-plus" /></svg>
+          <h2>Faites entrer votre image.</h2>
+          <p>Déposez la photo pour la transformer en particules.</p>
+        </div>
+      </div>
+      <div id="loading" class="loading">
+        <span></span>
+        <p id="loading-label">La lumière se rassemble…</p>
+      </div>
+      <div id="toast" class="toast" role="status" hidden></div>
+      <div id="renderer-error" class="renderer-error" role="alert" hidden>
+        <h2>L’expérience 3D est interrompue</h2>
+        <p id="renderer-error-message">
+          Le contexte graphique a été perdu. La scène reprendra dès son
+          rétablissement.
+        </p>
+        <button class="upload-button" id="reload-button">
+          Recharger la page
+        </button>
+      </div>
+    </main>
+
+    <dialog id="info-dialog">
+      <button
+        class="icon-button dialog-close"
+        id="info-close"
+        aria-label="Fermer"
+      >
+        <svg><use href="#i-close" /></svg>
+      </button>
+      <p class="eyebrow">PARTICULES / MODE D’EMPLOI</p>
+      <h2>Votre image,<br />en mouvement.</h2>
+      <p>
+        Importez une photo : chaque point en conserve une couleur. Les
+        particules tournent dans l’espace avant de retrouver leur place.
+      </p>
+      <ul>
+        <li>Déplacez la souris ou le doigt pour les repousser.</li>
+        <li>
+          Utilisez <strong>Disperser</strong> puis <strong>Recomposer</strong>,
+          ou <strong>Rejouer</strong>.
+        </li>
+        <li>Zoomez avec la molette ou en pinçant à deux doigts.</li>
+        <li>
+          Sur ordinateur : <kbd>Espace</kbd> pause, <kbd>R</kbd> rejouer,
+          <kbd>F</kbd> plein écran.
+        </li>
+      </ul>
+      <p class="dialog-privacy">
+        La photo est traitée sur votre appareil. Aucun envoi ni stockage sur un
+        serveur.
+      </p>
+      <p class="credit">
+        Photo d’exemple :
+        <a
+          href="https://unsplash.com/photos/brown-house-near-body-of-water-zAjdgNXsMeg"
+          target="_blank"
+          rel="noreferrer"
+          >Luca Bravo / Unsplash</a
+        >.<br />Une expérience réalisée avec Three.js.
+      </p>
+    </dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
