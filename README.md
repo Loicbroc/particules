@@ -8,7 +8,7 @@ Application Three.js qui recompose une photo à partir d’un ciel de particules
 - Import local par le sélecteur de fichiers ou par glisser-déposer : JPEG, PNG, WebP et autres formats décodables par le navigateur. Maximum 50 Mo par fichier.
 - Couleurs et proportions conservées ; transparence des PNG prise en compte.
 - Animation sur le GPU : un champ d’étoiles réparties sur tout l’écran, en profondeur, se rassemble progressivement pour former la photo. Scintillement discret, halos et parallaxe ; nombre d’étoiles visibles adapté à la densité pour conserver un ciel aéré.
-- Envol progressif au survol ou au toucher : chaque particule garde son élan et revient doucement former la photo, même après le passage du pointeur.
+- Envol fluide au survol ou au toucher : la direction et la vitesse du geste entraînent les particules comme un courant d’air. Leur élan s’amortit, de petits remous les font flotter et elles reviennent progressivement à la photo, même après le passage du pointeur.
 - Relief 2,5D : un relief artistique est créé immédiatement sur l’appareil, puis affiné avec Depth Anything V2 Small si le modèle est disponible. Un échec du téléchargement ou de l’inférence conserve le relief artistique et permet de réessayer l’IA. Le mode artistique utilise une interprétation des couleurs et de la composition, sans prétendre représenter une profondeur réelle.
 - Vague en profondeur, activable et réglable.
 - Galerie locale de 8 photos maximum : import multiple et glisser-déposer, vignettes, précédent/suivant et suppression. La galerie dure le temps de l’onglet.
@@ -17,7 +17,7 @@ Application Three.js qui recompose une photo à partir d’un ciel de particules
 - Explosion en volume depuis le bouton ou par un clic/toucher bref sur l’image, suivie d’un retour progressif à la photo.
 - Rejouer, pause/reprise, disperser et recomposer.
 - Durée de formation et dérive des étoiles réglables. Disperser ramène la photo au ciel étoilé.
-- Densité Fluide / Auto / Détail. Auto réduit la densité lorsque le rythme d’affichage devient trop faible.
+- Densité Fluide / Auto / Détail, avec **Détail par défaut** (jusqu’à 240 000 particules sur ordinateur et 110 000 sur mobile). Auto réduit la densité lorsque le rythme d’affichage devient trop faible.
 - Zoom par molette ou pincement à deux doigts ; plein écran lorsque le navigateur le permet.
 - Interface adaptée aux petits écrans, réglages dans un panneau repliable.
 - Respect de la préférence de réduction des mouvements, suspension quand l’onglet est masqué, signalement des pertes de contexte WebGL.

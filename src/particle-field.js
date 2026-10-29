@@ -19,7 +19,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
-import { FlightBrush } from "./flight-brush.js";
+import { FlightBrush, updateFlowVelocity } from "./flight-brush.js";
 import { remapCloud } from "./photo-morph.js";
 import {
   explosionEnvelope,
@@ -61,6 +61,7 @@ export const vertexShader = /* glsl */ `
   varying float vOpacity;
   varying float vFormed;
   varying float vWind;
+  varying vec2 vFlow;
   varying float vSky;
   varying float vSparkle;
 
@@ -88,24 +89,30 @@ export const vertexShader = /* glsl */ `
     );
     pos = mix(aFromPosition, pos, morph) + passage * crossing * uMorphMotion;
     float age = uInteractionTime - aFlight.x;
-    float duration = 2.6 + aRandom.z * 1.8;
+    float duration = 4.4 + aRandom.z * 2.4;
     float airborne = 0.0;
+    float flightTrail = 0.0;
+    vec2 flowDirection = vec2(1.0, 0.0);
     if (aFlight.y > 0.0 && age >= 0.0 && age < duration) {
-      float launchAngle = aRandom.x * 6.2831853;
-      float speed = 0.45 + aRandom.y * 0.7;
-      vec3 velocity = vec3(
-        cos(launchAngle) * speed + aFlight.z * 0.16,
-        0.6 + aRandom.w * 0.9 + sin(launchAngle) * 0.25 + aFlight.w * 0.10,
-        (aRandom.y - 0.4) * 1.0
-      );
-      float departure = 1.0 - exp(-age * 3.0);
-      float returnToImage = 1.0 - smoothstep(0.8, duration, age);
-      vec3 flight = velocity * min(age, 1.2);
-      flight.x += sin(age * 2.1 + aRandom.y * 6.2831853) * 0.12 * departure;
-      flight.z += sin(age * 1.7 + aRandom.x * 6.2831853) * 0.16 * departure;
+      // Integrate a decaying velocity analytically: the mouse lends its actual
+      // direction and momentum, which continue after it has left the image.
+      float phase = position.x * 2.1 + position.y * 1.3 + aRandom.z * 1.6;
+      vec2 velocity = aFlight.zw * 0.46 + vec2(cos(phase), sin(phase)) * 0.09;
+      float drag = 0.72 + aRandom.y * 0.28;
+      float travel = (1.0 - exp(-age * drag)) / drag;
+      float floatIn = 1.0 - exp(-age * 1.3);
+      float returnPhase = clamp((age - 1.25) / (duration - 1.25), 0.0, 1.0);
+      float returnToImage = 1.0 - returnPhase * returnPhase * returnPhase * (returnPhase * (returnPhase * 6.0 - 15.0) + 10.0);
+      vec3 flight = vec3(velocity * travel, 0.0);
+      flight.xy += vec2(sin(phase + age * 1.05), cos(phase + age * 0.85)) * 0.16 * floatIn;
+      flight.y += (0.18 + aRandom.w * 0.18) * floatIn * floatIn;
+      flight.z += ((aRandom.y - 0.4) * 0.5 + sin(phase + age * 0.8) * 0.18) * floatIn;
       flight *= aFlight.y * returnToImage * smoothstep(0.55, 0.95, p);
       pos += flight;
       airborne = clamp(length(flight), 0.0, 1.0);
+      vec2 screenVelocity = (modelViewMatrix * vec4(velocity, 0.0, 0.0)).xy;
+      flowDirection = normalize(screenVelocity + vec2(0.00001, 0.0));
+      flightTrail = min(0.8, length(aFlight.zw) * 0.12) * floatIn * returnToImage * aFlight.y;
     }
     if (uBurst > 0.0) {
       float theta = aRandom.x * 6.2831853;
@@ -143,7 +150,8 @@ export const vertexShader = /* glsl */ `
     mvPosition.xy += vec2(sin(aRandom.w * 6.2831853), cos(aRandom.z * 6.2831853)) * sin(p * 3.14159265) * 0.18 * uDrift * uMotion * morph;
     gl_Position = projectionMatrix * mvPosition;
     float depthFootprint = mix(1.0, (7.0 - depth * uWorldScale) / 7.0, p);
-    float photoSize = mix(uFromSize, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + wind * 1.6);
+    float streak = max(wind, flightTrail);
+    float photoSize = mix(uFromSize, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + streak * 1.6);
     float starSeed = fract(aRandom.w * 19.19 + aRandom.z * 73.13);
     float magnitude = pow(fract(aRandom.x * 31.31 + aRandom.w * 7.17), 5.0);
     float starSize = (1.7 + magnitude * 6.5) * (1.25 - distance * 0.025) * uPixelRatio;
@@ -155,7 +163,8 @@ export const vertexShader = /* glsl */ `
     float reveal = mix(starVisible, 1.0, smoothstep(0.18, 0.9, p));
     vOpacity = mix(aFromOpacity, aOpacity, morph) * mix(1.0, reveal, morph) * mix(0.8, 1.0, p);
     vFormed = p * (1.0 - airborne * 0.45) * (1.0 - crossing * 0.6 * uMorphMotion);
-    vWind = wind;
+    vWind = streak;
+    vFlow = wind >= flightTrail ? vec2(1.0, 0.0) : flowDirection;
     vSky = skyWeight;
     vSparkle = step(0.93, magnitude) * skyWeight;
   }
@@ -166,11 +175,15 @@ export const fragmentShader = /* glsl */ `
   varying float vOpacity;
   varying float vFormed;
   varying float vWind;
+  varying vec2 vFlow;
   varying float vSky;
   varying float vSparkle;
   void main() {
     if (vOpacity < 0.005) discard;
     vec2 grain = gl_PointCoord - vec2(0.5);
+    // gl_PointCoord's Y direction is opposite to the projected velocity.
+    vec2 direction = vec2(vFlow.x, -vFlow.y);
+    grain = vec2(dot(grain, direction), dot(grain, vec2(-direction.y, direction.x)));
     grain.y *= 1.0 + vWind * 1.6;
     float radius = length(grain);
     if (radius > 0.5) discard;
@@ -235,6 +248,7 @@ export class ParticleField {
     this.pointerActive = 0;
     this.interactionTime = 0;
     this.lastBrush = null;
+    this.brushVelocity = new Vector2();
     this.view = new Vector2();
     this.viewTarget = new Vector2();
     this.viewAmount = 0;
@@ -609,6 +623,7 @@ export class ParticleField {
   clearPointer() {
     this.pointerActive = 0;
     this.lastBrush = null;
+    this.brushVelocity.set(0, 0);
   }
 
   render(delta, time) {
@@ -658,6 +673,7 @@ export class ParticleField {
       const start = this.lastBrush || this.pointer;
       const dx = this.pointer.x - start.x;
       const dy = this.pointer.y - start.y;
+      updateFlowVelocity(this.brushVelocity, dx, dy, delta);
       const samples = Math.min(
         12,
         Math.max(1, Math.ceil(Math.hypot(dx, dy) / (this.brushRadius * 0.45))),
@@ -669,10 +685,10 @@ export class ParticleField {
         const changed = this.flightBrush.stamp(
           start.x + dx * t,
           start.y + dy * t,
-          dx / Math.max(delta, 0.001),
-          dy / Math.max(delta, 0.001),
+          this.brushVelocity.x,
+          this.brushVelocity.y,
           this.interactionTime,
-          delta / Math.sqrt(samples),
+          delta / samples,
           this.brushRadius,
         );
         if (changed) {

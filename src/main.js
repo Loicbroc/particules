@@ -14,7 +14,7 @@ const state = {
   time: 0,
   paused: false,
   transition: null,
-  quality: "auto",
+  quality: "high",
   duration: 8,
   loading: false,
   loadToken: 0,

@@ -1,5 +1,17 @@
 export function flightDuration(seed) {
-  return 2.6 + seed * 1.8;
+  return 4.4 + seed * 2.4;
+}
+
+// Filter velocity in seconds, with a vector limit so diagonal sweeps have the
+// same energy as horizontal ones. A delayed frame cannot create a huge impulse.
+export function updateFlowVelocity(velocity, dx, dy, delta) {
+  if (delta <= 0) return velocity;
+  const speed = Math.hypot(dx, dy) / delta;
+  const limit = Math.min(1, 9 / Math.max(speed, 0.001));
+  const blend = 1 - Math.exp(-delta / 0.07);
+  velocity.x += (dx / delta * limit - velocity.x) * blend;
+  velocity.y += (dy / delta * limit - velocity.y) * blend;
+  return velocity;
 }
 
 // Only inspect image cells touched by the brush. The GPU animates each impulse
@@ -19,6 +31,9 @@ export class FlightBrush {
   stamp(x, y, vx, vy, time, delta, radius) {
     if (delta <= 0 || radius <= 0) return null;
     const { width, height, aspect, data, seeds, cellIndices } = this;
+    const speed = Math.hypot(vx, vy);
+    const limit = Math.min(1, 9 / Math.max(speed, 0.001));
+    const gust = 1 - Math.exp(-speed * 0.45);
     const left = Math.max(
       0,
       Math.ceil(((x - radius) / (aspect * 2) + 0.5) * width - 0.5),
@@ -53,12 +68,12 @@ export class FlightBrush {
         const falloff = 1 - distance / radius;
         // Stagger takeoffs, including under a stationary pointer. The soft,
         // irregular emission avoids moving every pixel onto a circular rim.
-        const rate = (1.8 + seeds[offset + 1] * 2.8) * falloff * falloff;
+        const rate = (2.0 + seeds[offset + 1] * 2.8) * (1 + gust * 2.2) * falloff * falloff;
         if (this.random() >= 1 - Math.exp(-rate * delta)) continue;
         data[offset] = time;
-        data[offset + 1] = (0.3 + seeds[offset + 3] * 1.0) * Math.sqrt(falloff);
-        data[offset + 2] = Math.max(-4, Math.min(4, vx));
-        data[offset + 3] = Math.max(-4, Math.min(4, vy));
+        data[offset + 1] = (0.32 + seeds[offset + 3] * 0.75) * Math.sqrt(falloff) * (1 + gust * 0.3);
+        data[offset + 2] = vx * limit;
+        data[offset + 3] = vy * limit;
         first = Math.min(first, offset);
         last = Math.max(last, offset + 3);
       }

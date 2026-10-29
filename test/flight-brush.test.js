@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FlightBrush } from "../src/flight-brush.js";
+import { FlightBrush, updateFlowVelocity } from "../src/flight-brush.js";
 
 function fixture() {
   let seed = 42;
@@ -62,4 +62,39 @@ test("transparent image cells do not create phantom flying particles", () => {
   brush.cellIndices.fill(-1);
   assert.equal(brush.stamp(0, 0, 1, 1, 1, 1, 1), null);
   assert.equal(active(brush).length, 0);
+});
+
+test("a fast sweep launches more grains and lends them the gesture's direction", () => {
+  const slow = fixture(), fast = fixture();
+  slow.stamp(0, 0, 0.1, 0, 1, 0.05, 0.4);
+  fast.stamp(0, 0, -6, 2, 1, 0.05, 0.4);
+  assert.ok(active(fast).length > active(slow).length);
+  for (const offset of active(fast)) {
+    assert.equal(fast.data[offset + 2], -6);
+    assert.equal(fast.data[offset + 3], 2);
+  }
+});
+
+test("an extreme diagonal gesture is bounded without changing its direction", () => {
+  const brush = fixture();
+  brush.stamp(0, 0, 30, 40, 1, 0.05, 0.4);
+  for (const offset of active(brush)) {
+    const x = brush.data[offset + 2], y = brush.data[offset + 3];
+    assert.ok(Math.abs(Math.hypot(x, y) - 9) < 0.00001);
+    assert.ok(Math.abs(x / y - 0.75) < 0.00001);
+  }
+});
+
+test("velocity filtering preserves momentum and behaves consistently at 60 and 120 Hz", () => {
+  const simulate = (fps) => {
+    const velocity = { x: 0, y: 0 };
+    for (let i = 0; i < fps / 2; i++) updateFlowVelocity(velocity, 4 / fps, -2 / fps, 1 / fps);
+    return velocity;
+  };
+  const a = simulate(60), b = simulate(120);
+  assert.ok(Math.abs(a.x - b.x) < 0.00001);
+  assert.ok(Math.abs(a.y - b.y) < 0.00001);
+  updateFlowVelocity(a, 0, 0, 1 / 60);
+  assert.ok(a.x > 2 && a.x < b.x);
+  assert.ok(a.y < 0);
 });
