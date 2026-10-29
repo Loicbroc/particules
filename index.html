@@ -70,6 +70,9 @@
       <symbol id="i-wave" viewBox="0 0 24 24">
         <path d="M2 8c4-7 6 7 10 0s6 7 10 0M2 16c4-7 6 7 10 0s6 7 10 0" />
       </symbol>
+      <symbol id="i-wind" viewBox="0 0 24 24">
+        <path d="M3 8h12a3 3 0 1 0-3-3M2 12h17a3 3 0 1 1-3 3M4 17h5a2 2 0 1 1-2 2" />
+      </symbol>
       <symbol id="i-burst" viewBox="0 0 24 24">
         <path
           d="M12 2v4m0 12v4M2 12h4m12 0h4M5 5l3 3m8 8 3 3M5 19l3-3m8-8 3-3"
@@ -146,10 +149,10 @@
         <div class="control-section photo-section">
           <span class="section-label">01 <span>VOTRE IMAGE</span></span>
           <button id="upload-button" class="upload-button">
-            <svg><use href="#i-plus" /></svg>Importer une photo
+            <svg><use href="#i-plus" /></svg>Ajouter des photos
           </button>
-          <input id="file-input" type="file" accept="image/*" hidden />
-          <p class="drop-hint">ou glissez-la dans la scène</p>
+          <input id="file-input" type="file" accept="image/*" multiple hidden />
+          <p class="drop-hint">ou glissez-les ici · 8 photos maximum</p>
           <div class="current-image">
             <img
               id="thumbnail"
@@ -161,6 +164,15 @@
               ><small id="image-dimensions">Image de démonstration</small>
             </div>
             <span class="image-dot" aria-hidden="true"></span>
+          </div>
+          <div id="gallery-controls" class="gallery-controls" hidden>
+            <div id="photo-gallery" class="photo-gallery" role="group" aria-label="Photos de la galerie"></div>
+            <div class="gallery-navigation">
+              <button id="previous-photo" class="gallery-arrow" aria-label="Photo précédente">←</button>
+              <span id="gallery-position" aria-live="polite">1 / 1</span>
+              <button id="next-photo" class="gallery-arrow" aria-label="Photo suivante">→</button>
+              <button id="remove-photo" class="text-button">Retirer</button>
+            </div>
           </div>
           <button id="demo-button" class="text-button" hidden>
             Revenir à l’image d’exemple
@@ -224,7 +236,7 @@
             value="55"
           />
           <label class="range-label" for="effect-intensity"
-            >Intensité vague / explosion<output
+            >Intensité des effets<output
               id="effect-intensity-value"
               for="effect-intensity"
               >65 %</output
@@ -275,6 +287,9 @@
             title="Disponible une fois l’image formée"
           >
             <svg><use href="#i-burst" /></svg><span>Explosion</span>
+          </button>
+          <button class="effect-button" id="wind-button" title="Un courant emporte les particules puis l’image se reforme">
+            <svg><use href="#i-wind" /></svg><span>Souffle</span>
           </button>
         </div>
         <p class="interaction-hint">
@@ -333,7 +348,7 @@
         <div>
           <svg><use href="#i-plus" /></svg>
           <h2>Faites entrer votre image.</h2>
-          <p>Déposez la photo pour la transformer en particules.</p>
+          <p>Déposez vos photos pour les transformer en particules.</p>
         </div>
       </div>
       <div id="loading" class="loading">
@@ -377,6 +392,12 @@
           ou <strong>Rejouer</strong>.
         </li>
         <li>Zoomez avec la molette ou en pinçant à deux doigts.</li>
+        <li>
+          Ajoutez jusqu’à <strong>8 photos</strong>, puis choisissez une vignette ou
+          les flèches : les particules voyagent et changent de couleur pour former
+          la suivante. La galerie reste disponible jusqu’au rechargement de la page.
+        </li>
+        <li><strong>Souffle</strong> fait passer un courant de vent dans l’image. Les grains s’envolent en traînées puis se reposent.</li>
         <li>
           <strong>Vague</strong> anime la surface. <strong>Explosion</strong>,
           ou un clic sur l’image, disperse les particules en volume puis les

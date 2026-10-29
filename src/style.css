@@ -1121,9 +1121,62 @@ kbd {
 }
 .effect-shortcuts {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 7px;
   margin-bottom: 18px;
+}
+.photo-gallery {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 12px 1px 5px;
+  scrollbar-width: thin;
+}
+.gallery-photo {
+  width: 44px;
+  height: 40px;
+  flex: 0 0 auto;
+  padding: 2px;
+  border: 1px solid #354a3e;
+  border-radius: 5px;
+  background: #0b120e;
+}
+.gallery-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 3px;
+}
+.gallery-photo[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: #37523f;
+}
+.gallery-navigation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  color: #9cb5a5;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.gallery-arrow {
+  border: 1px solid #33483c;
+  border-radius: 4px;
+  background: #16221b;
+  color: #c7e3d0;
+  padding: 3px 9px;
+  font-size: 16px;
+}
+.gallery-navigation .text-button {
+  margin: 0 0 0 auto;
+}
+@media (max-width: 450px) {
+  .effect-shortcuts { gap: 5px; }
+  .effect-shortcuts .effect-button { padding: 8px; gap: 4px; font-size: 9px; }
+  .effect-shortcuts .effect-button svg { width: 14px; height: 14px; }
 }
 .effect-button {
   display: flex;

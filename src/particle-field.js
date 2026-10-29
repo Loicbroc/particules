@@ -20,6 +20,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { FlightBrush } from "./flight-brush.js";
+import { remapCloud } from "./photo-morph.js";
 import {
   explosionEnvelope,
   sampleDepth,
@@ -32,6 +33,9 @@ export const vertexShader = /* glsl */ `
   attribute float aOpacity;
   attribute vec4 aFlight;
   attribute float aDepth;
+  attribute vec3 aFromPosition;
+  attribute vec3 aFromColor;
+  attribute float aFromOpacity;
   uniform float uTime;
   uniform float uProgress;
   uniform float uSwirl;
@@ -44,9 +48,16 @@ export const vertexShader = /* glsl */ `
   uniform float uBurst;
   uniform float uWorldScale;
   uniform vec2 uCenter;
+  uniform float uMorph;
+  uniform float uMorphMotion;
+  uniform float uFromSize;
+  uniform float uWindTime;
+  uniform float uWindStrength;
+  uniform float uAspect;
   varying vec3 vColor;
   varying float vOpacity;
   varying float vFormed;
+  varying float vWind;
 
   void main() {
     float p = smoothstep(aRandom.w * 0.24, 1.0, uProgress);
@@ -72,6 +83,14 @@ export const vertexShader = /* glsl */ `
     target.y += cos(wavePhase) * uWave * 0.065;
     target.z += sin(uTime * 0.55 + position.x * 2.0 + position.y) * 0.012 * uMotion;
     vec3 pos = mix(vortex, target, p);
+    float morph = smoothstep(0.0, 1.0, uMorph);
+    float crossing = sin(morph * 3.14159265);
+    vec3 passage = vec3(
+      sin(aRandom.x * 6.2831853) * (0.5 + aRandom.z),
+      (aRandom.y - 0.5) * 1.8 + sin(morph * 6.2831853 + aRandom.x * 6.2831853) * 0.3,
+      (aRandom.w - 0.35) * 2.6
+    );
+    pos = mix(aFromPosition, pos, morph) + passage * crossing * uMorphMotion;
     float age = uInteractionTime - aFlight.x;
     float duration = 2.6 + aRandom.z * 1.8;
     float airborne = 0.0;
@@ -100,13 +119,27 @@ export const vertexShader = /* glsl */ `
       pos += direction * (1.7 + aRandom.z * 2.3) * uBurst * p;
       airborne = max(airborne, min(1.0, uBurst));
     }
+    // A front crosses the photo. Every grain departs at its own time, drifts
+    // downstream and settles back; no radial hole or permanent displacement.
+    float windAge = uWindTime - (position.x / (2.0 * uAspect) + 0.5) * 1.9 - aRandom.x * 0.16;
+    float wind = 0.0;
+    if (windAge > 0.0 && windAge < 3.7) {
+      float settle = 1.0 - smoothstep(1.25, 3.7, windAge);
+      wind = smoothstep(0.0, 0.35, windAge) * settle * uWindStrength * p;
+      float drift = min(windAge, 1.35);
+      pos.x += (0.55 + aRandom.y * 1.25) * drift * wind;
+      pos.y += (0.13 * drift + sin(windAge * 3.1 + aRandom.z * 6.2831853) * 0.2) * wind;
+      pos.z += ((aRandom.w - 0.4) * 0.75 + sin(windAge * 2.2 + aRandom.x * 6.2831853) * 0.18) * wind;
+      airborne = max(airborne, wind * 0.65);
+    }
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     float depthFootprint = mix(1.0, (7.0 - depth * uWorldScale) / 7.0, p);
-    gl_PointSize = clamp(uSize * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * depthFootprint * mix(1.35, 1.0, p) * mix(1.0, 0.7, airborne), 1.0, 30.0);
-    vColor = color;
-    vOpacity = aOpacity * mix(0.62, 1.0, p);
-    vFormed = p * (1.0 - airborne * 0.45);
+    gl_PointSize = clamp(mix(uFromSize, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.35, 1.0, p) * mix(1.0, 0.7, airborne) * (1.0 + wind * 1.6), 1.0, 30.0);
+    vColor = mix(aFromColor, color, morph);
+    vOpacity = mix(aFromOpacity, aOpacity, morph) * mix(0.62, 1.0, p);
+    vFormed = p * (1.0 - airborne * 0.45) * (1.0 - crossing * 0.6 * uMorphMotion);
+    vWind = wind;
   }
 `;
 
@@ -114,8 +147,11 @@ export const fragmentShader = /* glsl */ `
   varying vec3 vColor;
   varying float vOpacity;
   varying float vFormed;
+  varying float vWind;
   void main() {
-    float radius = length(gl_PointCoord - vec2(0.5));
+    vec2 grain = gl_PointCoord - vec2(0.5);
+    grain.y *= 1.0 + vWind * 1.6;
+    float radius = length(grain);
     if (radius > 0.5) discard;
     float soft = exp(-radius * radius * 12.0) * (1.0 - smoothstep(0.4, 0.5, radius));
     float crisp = 1.0 - smoothstep(0.38, 0.5, radius);
@@ -180,6 +216,7 @@ export class ParticleField {
     this.reducedMotion = reducedMotion;
     this.currentTime = 0;
     this.explosionStart = -100;
+    this.windStart = -100;
     this.depthMap = null;
     this.sourceImage = null;
     this.effects = { relief: false, wave: false, depth: 0.55, intensity: 0.65 };
@@ -200,6 +237,12 @@ export class ParticleField {
       uBurst: { value: 0 },
       uWorldScale: { value: 1 },
       uCenter: { value: new Vector2() },
+      uMorph: { value: 1 },
+      uMorphMotion: { value: reducedMotion ? 0 : 1 },
+      uFromSize: { value: 2.4 },
+      uWindTime: { value: -100 },
+      uWindStrength: { value: 0 },
+      uAspect: { value: 1.5 },
     };
     this.material = new ShaderMaterial({
       uniforms: this.uniforms,
@@ -235,7 +278,23 @@ export class ParticleField {
     this.scene.add(this.dust);
   }
 
-  setImage(image, budget) {
+  setImage(image, budget, { morph = false } = {}) {
+    const previous = morph && this.points?.geometry;
+    const oldScale = this.baseScale * this.zoom;
+    const oldSize = this.uniforms.uSize.value;
+    let departing;
+    if (previous) {
+      const position = previous.getAttribute("position").array.slice();
+      const depths = previous.getAttribute("aDepth").array;
+      for (let i = 0; i < depths.length; i++) {
+        const x = position[i * 3], y = position[i * 3 + 1];
+        const depth = (depths[i] - 0.5) * this.uniforms.uDepth.value;
+        position[i * 3] = x * (1 - depth * oldScale / 7) - this.group.position.x * depth / 7;
+        position[i * 3 + 1] = y * (1 - depth * oldScale / 7) - this.group.position.y * depth / 7;
+        position[i * 3 + 2] = depth + waveHeight(x, y, this.currentTime, this.uniforms.uWave.value);
+      }
+      departing = { position, color: previous.getAttribute("color").array, opacity: previous.getAttribute("aOpacity").array };
+    }
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
     if (!width || !height)
@@ -302,12 +361,24 @@ export class ParticleField {
       this.depthMap = null;
       this.effects.relief = false;
       this.explosionStart = -100;
+      this.windStart = -100;
     }
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
     geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     geometry.setAttribute("aRandom", new Float32BufferAttribute(randoms, 4));
     geometry.setAttribute("aOpacity", new Float32BufferAttribute(opacities, 1));
+    // resize below establishes the scale of the arriving photograph.
+    this.resize();
+    const from = departing
+      ? remapCloud(departing, opacities.length, oldScale / (this.baseScale * this.zoom))
+      : { position: positions, color: colors, opacity: opacities };
+    geometry.setAttribute("aFromPosition", new Float32BufferAttribute(from.position, 3));
+    geometry.setAttribute("aFromColor", new Float32BufferAttribute(from.color, 3));
+    geometry.setAttribute("aFromOpacity", new Float32BufferAttribute(from.opacity, 1));
+    this.uniforms.uFromSize.value = departing ? oldSize : this.uniforms.uSize.value;
+    this.uniforms.uMorph.value = departing ? 0 : 1;
+    this.uniforms.uAspect.value = aspect;
     const depths = new Float32Array(opacities.length);
     for (let i = 0; i < depths.length; i++) {
       depths[i] = sampleDepth(
@@ -484,6 +555,16 @@ export class ParticleField {
   }
   resetExplosion() {
     this.explosionStart = -100;
+    this.windStart = -100;
+  }
+  blowWind() {
+    if (!this.points || this.uniforms.uProgress.value < 0.97 || this.uniforms.uMorph.value < 1) return false;
+    this.windStart = this.currentTime;
+    return true;
+  }
+  get windy() {
+    const age = this.currentTime - this.windStart;
+    return age >= 0 && age < 5.8;
   }
   explode() {
     if (!this.points || this.uniforms.uProgress.value < 0.97) return false;
@@ -504,6 +585,8 @@ export class ParticleField {
     if (this.contextLost) return;
     this.uniforms.uTime.value = time;
     this.currentTime = time;
+    this.uniforms.uWindTime.value = time - this.windStart;
+    this.uniforms.uWindStrength.value = 0.4 + this.effects.intensity * 0.9;
     this.uniforms.uDepth.value = MathUtils.damp(
       this.uniforms.uDepth.value,
       this.effects.relief ? this.effects.depth * 1.05 : 0,
@@ -537,6 +620,8 @@ export class ParticleField {
       this.pointerActive &&
       this.flightBrush &&
       !this.exploding &&
+      !this.windy &&
+      this.uniforms.uMorph.value >= 1 &&
       this.uniforms.uProgress.value > 0.75
     ) {
       const start = this.lastBrush || this.pointer;

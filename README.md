@@ -11,6 +11,9 @@ Application Three.js qui recompose une photo avec un nuage de particules en spir
 - Envol progressif au survol ou au toucher : chaque particule garde son élan et revient doucement former la photo, même après le passage du pointeur.
 - Relief 2,5D : un relief artistique est créé immédiatement sur l’appareil, puis affiné avec Depth Anything V2 Small si le modèle est disponible. Un échec du téléchargement ou de l’inférence conserve le relief artistique et permet de réessayer l’IA. Le mode artistique utilise une interprétation des couleurs et de la composition, sans prétendre représenter une profondeur réelle.
 - Vague en profondeur, activable et réglable.
+- Galerie locale de 8 photos maximum : import multiple et glisser-déposer, vignettes, précédent/suivant et suppression. La galerie dure le temps de l’onglet.
+- Transformation entre les photos : les particules quittent leur position, traversent l’espace et changent de couleur pour recomposer la suivante, avec conservation des proportions et de la transparence. La transition peut être mise en pause.
+- Souffle de vent : un front traverse l’image, emporte les grains en traînées puis les laisse se reformer. Son intensité se règle avec celle des autres effets.
 - Explosion en volume depuis le bouton ou par un clic/toucher bref sur l’image, suivie d’un retour progressif à la photo.
 - Rejouer, pause/reprise, disperser et recomposer.
 - Durée de formation et intensité du tourbillon réglables.

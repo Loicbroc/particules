@@ -2,6 +2,7 @@ import "./style.css";
 import { ParticleField } from "./particle-field.js";
 import { DepthEstimator } from "./depth-client.js";
 import { createArtisticDepth } from "./artistic-depth.js";
+import { morphDuration } from "./photo-morph.js";
 
 const $ = (id) => document.getElementById(id);
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -24,6 +25,8 @@ const state = {
   relief: false,
   wave: false,
   depthBusy: false,
+  gallery: [],
+  morph: null,
 };
 const depthEstimator = new DepthEstimator();
 let field;
@@ -53,7 +56,7 @@ function setLoading(value, label = "Les couleurs prennent place…") {
 }
 
 function updateEffectUI() {
-  const unavailable = state.loading || !state.image;
+  const unavailable = state.loading || !state.image || Boolean(state.morph);
   $("relief-button").disabled = unavailable;
   $("relief-button").setAttribute("aria-pressed", String(state.relief));
   $("relief-button").setAttribute("aria-busy", String(state.depthBusy));
@@ -66,6 +69,15 @@ function updateEffectUI() {
   $("wave-button").classList.toggle("active", state.wave);
   $("burst-button").disabled = unavailable || state.progress < 0.999;
   $("burst-button").classList.toggle("active", Boolean(field?.exploding));
+  $("wind-button").disabled = unavailable || state.progress < 0.999;
+  $("wind-button").classList.toggle("active", Boolean(field?.windy));
+  const busy = state.loading || Boolean(state.morph);
+  for (const id of ["replay-button", "scatter-button", "upload-button", "mobile-upload", "remove-photo", "demo-button"])
+    $(id).disabled = busy || !state.image && id !== "upload-button" && id !== "mobile-upload";
+  for (const button of document.querySelectorAll("[data-quality], [data-photo]"))
+    button.disabled = busy;
+  $("previous-photo").disabled = busy || state.gallery.length < 2;
+  $("next-photo").disabled = busy || state.gallery.length < 2;
 }
 
 async function toggleRelief() {
@@ -144,10 +156,18 @@ function toggleWave() {
 }
 
 function triggerExplosion() {
-  if (!state.image || state.loading || state.progress < 0.999) return;
+  if (!state.image || state.loading || state.morph || state.progress < 0.999) return;
   state.paused = false;
   field.clearPointer();
   field.explode();
+  updateUI();
+}
+
+function triggerWind() {
+  if (!state.image || state.loading || state.morph || state.progress < 0.999) return;
+  state.paused = false;
+  field.clearPointer();
+  field.blowWind();
   updateUI();
 }
 
@@ -174,7 +194,9 @@ function updateUI() {
   document
     .querySelector(".timeline")
     .setAttribute("aria-valuenow", String(percent));
-  $("progress-label").textContent = state.transition ? `${percent} %` : "";
+  $("progress-label").textContent = state.morph
+    ? `${Math.round(state.morph.elapsed / state.morph.seconds * 100)} %`
+    : state.transition ? `${percent} %` : "";
   const dispersed = state.transition
     ? state.transition.to === 0
     : state.progress < 0.5;
@@ -200,12 +222,18 @@ function updateUI() {
   } else if (state.paused) {
     label = "Le temps suspendu";
     phase = "paused";
+  } else if (state.morph) {
+    label = "D’une photo à l’autre";
+    phase = "morphing";
   } else if (state.transition?.to === 0) {
     label = "L’image se libère";
     phase = "dispersing";
   } else if (field?.exploding) {
     label = "L’image éclate dans l’espace";
     phase = "exploding";
+  } else if (field?.windy) {
+    label = "Un souffle emporte les particules";
+    phase = "wind";
   } else if (state.progress >= 0.999) {
     label = state.wave
       ? "Une vague traverse l’image"
@@ -239,7 +267,7 @@ function form() {
 }
 
 function replay() {
-  if (!state.image || state.loading) return;
+  if (!state.image || state.loading || state.morph) return;
   field.setZoom(1);
   field.clearPointer();
   field.resetExplosion();
@@ -272,90 +300,168 @@ function showSettings() {
   field?.clearPointer();
 }
 
-async function loadPhoto(source, name, isDemo = false) {
-  const token = ++state.loadToken;
-  const url = typeof source === "string" ? source : URL.createObjectURL(source);
-  const ownedURL = typeof source !== "string";
-  setLoading(true, "Lecture de votre image…");
+function renderGallery() {
+  const container = $("photo-gallery");
+  container.replaceChildren();
+  state.gallery.forEach((photo, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "gallery-photo";
+    button.dataset.photo = String(index);
+    button.setAttribute("aria-label", `Afficher ${photo.name}`);
+    button.setAttribute("aria-pressed", String(photo === state.image));
+    button.title = photo.name;
+    const image = document.createElement("img");
+    image.src = photo.url;
+    image.alt = "";
+    button.append(image);
+    button.addEventListener("click", () => selectPhoto(photo));
+    container.append(button);
+  });
+  $("gallery-controls").hidden = state.gallery.length < 2;
+  $("gallery-position").textContent = `${state.gallery.indexOf(state.image) + 1} / ${state.gallery.length}`;
+  $("remove-photo").hidden = state.gallery.length < 2;
+  updateEffectUI();
+}
+
+function activatePhoto(photo) {
+  const morph = Boolean(state.image && state.progress >= 0.999);
+  field.setImage(photo.image, budget(1), { morph });
+  depthEstimator.cancel();
+  state.image = photo;
+  state.relief = false;
+  state.depthBusy = false;
+  if (photo.depthMap) field.setDepthMap(photo.depthMap);
+  $("depth-status").textContent = photo.depthKind === "ai"
+    ? "Relief affiné par IA · calcul effectué sur cet appareil."
+    : "Relief artistique immédiat · affinage IA sur cet appareil si disponible.";
+  state.autoFactor = 1;
+  state.adaptations = 0;
+  state.frames = 0;
+  state.frameMean = 16.7;
+  state.transition = null;
+  state.paused = false;
+  state.morph = morph ? { elapsed: 0, seconds: morphDuration(reducedMotion) } : null;
+  state.progress = morph || reducedMotion ? 1 : 0;
+  field.uniforms.uProgress.value = state.progress;
+  if (!morph) field.setZoom(1);
+  field.clearPointer();
+  $("thumbnail").src = photo.url;
+  $("image-name").textContent = photo.name;
+  $("image-name").title = photo.name;
+  $("image-dimensions").textContent =
+    `${photo.image.naturalWidth} × ${photo.image.naturalHeight}${photo.isDemo ? " · Démonstration" : ""}`;
+  $("demo-button").hidden = photo.isDemo;
+  $("scene").setAttribute("aria-label", `Photo « ${photo.name} » reconstruite par des particules interactives`);
+  updateCount();
+  closeSettings();
+  if (!morph && !reducedMotion) transitionTo(1, state.duration);
+  else updateUI();
+}
+
+function selectPhoto(photo) {
+  if (!field || state.loading || state.morph || photo === state.image) return;
   try {
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    if (token !== state.loadToken) {
-      if (ownedURL) URL.revokeObjectURL(url);
-      return;
-    }
-    // Let the browser paint the busy state before preparing the particle buffers.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    if (token !== state.loadToken) {
-      if (ownedURL) URL.revokeObjectURL(url);
-      return;
-    }
-    field.setImage(image, budget(1));
-    depthEstimator.cancel();
-    if (state.image?.ownedURL) URL.revokeObjectURL(state.image.url);
-    state.image = { image, url, name, isDemo, ownedURL };
-    state.relief = false;
-    state.depthBusy = false;
-    $("depth-status").textContent =
-      "Relief artistique immédiat · affinage IA sur cet appareil si disponible.";
-    state.autoFactor = 1;
-    state.adaptations = 0;
-    state.frames = 0;
-    state.frameMean = 16.7;
-    state.transition = null;
-    state.paused = false;
-    state.progress = reducedMotion ? 1 : 0;
-    field.uniforms.uProgress.value = state.progress;
-    field.setZoom(1);
-    $("thumbnail").src = url;
-    $("image-name").textContent = name;
-    $("image-name").title = name;
-    $("image-dimensions").textContent =
-      `${image.naturalWidth} × ${image.naturalHeight}${isDemo ? " · Démonstration" : ""}`;
-    $("demo-button").hidden = isDemo;
-    $("scene").setAttribute(
-      "aria-label",
-      `Photo « ${name} » reconstruite par des particules interactives`,
-    );
-    updateCount();
-    closeSettings();
-    if (!reducedMotion) transitionTo(1, state.duration);
-    else updateUI();
+    activatePhoto(photo);
+    renderGallery();
   } catch (error) {
-    if (ownedURL) URL.revokeObjectURL(url);
-    if (token === state.loadToken) {
-      toast(
-        error.message?.includes("transparente")
-          ? error.message
-          : "Impossible de lire cette image. Essayez une photo JPEG, PNG ou WebP.",
-      );
-      updateUI();
-    }
-  } finally {
-    if (token === state.loadToken) setLoading(false);
+    console.warn("Changement de photo :", error);
+    toast("Cette photo n’a pas pu être affichée.");
   }
 }
 
-function importFile(file) {
-  if (!file) return;
-  if (file.type && !file.type.startsWith("image/")) {
-    toast("Choisissez un fichier image (JPEG, PNG ou WebP).");
+function stepPhoto(direction) {
+  const index = state.gallery.indexOf(state.image);
+  selectPhoto(state.gallery[(index + direction + state.gallery.length) % state.gallery.length]);
+}
+
+function removePhoto() {
+  if (state.loading || state.morph || state.gallery.length < 2) return;
+  const photo = state.image;
+  stepPhoto(1);
+  if (state.image === photo) return;
+  state.gallery.splice(state.gallery.indexOf(photo), 1);
+  if (photo.ownedURL) URL.revokeObjectURL(photo.url);
+  renderGallery();
+}
+
+async function loadPhotos(specs) {
+  const token = ++state.loadToken;
+  setLoading(true, "Lecture de vos images…");
+  const photos = [];
+  try {
+    for (const { source, name, isDemo = false } of specs) {
+      const ownedURL = typeof source !== "string";
+      const url = ownedURL ? URL.createObjectURL(source) : source;
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        photos.push({ image, url, name, isDemo, ownedURL });
+      } catch {
+        if (ownedURL) URL.revokeObjectURL(url);
+        if (token === state.loadToken) toast(`Impossible de lire « ${name} ». Essayez une photo JPEG, PNG ou WebP.`);
+      }
+      if (token !== state.loadToken) return;
+    }
+    if (!photos.length) return;
+    // Paint the busy state before preparing the buffers.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (token !== state.loadToken) return;
+    activatePhoto(photos[0]);
+    state.gallery.push(...photos);
+    renderGallery();
+  } catch (error) {
+    if (token === state.loadToken) toast(error.message?.includes("transparente")
+      ? error.message : "Impossible de préparer cette photo. Essayez un autre fichier.");
+  } finally {
+    for (const photo of photos) {
+      if (photo.ownedURL && !state.gallery.includes(photo)) URL.revokeObjectURL(photo.url);
+    }
+    if (token === state.loadToken) {
+      setLoading(false);
+      updateUI();
+    }
+  }
+}
+
+async function loadPhoto(source, name, isDemo = false) {
+  if (state.morph) return;
+  const existing = isDemo && state.gallery.find((photo) => photo.isDemo);
+  if (existing) return selectPhoto(existing);
+  if (state.gallery.length >= 8) {
+    toast("Retirez une photo de la galerie pour retrouver l’image d’exemple.");
     return;
   }
-  if (file.size > 50 * 1024 * 1024) {
-    toast("Cette photo dépasse 50 Mo. Utilisez une version plus légère.");
-    return;
-  }
+  return loadPhotos([{ source, name, isDemo }]);
+}
+
+function importFiles(files) {
+  if (state.morph) return;
   if (!field) {
     toast("La scène 3D n’est pas disponible dans ce navigateur.");
     return;
   }
-  void loadPhoto(file, file.name || "Votre photo");
+  const available = 8 - state.gallery.length;
+  const valid = [...files].filter((file) => {
+    if (file.type && !file.type.startsWith("image/")) {
+      toast("Choisissez un fichier image (JPEG, PNG ou WebP).");
+      return false;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      toast("Cette photo dépasse 50 Mo. Utilisez une version plus légère.");
+      return false;
+    }
+    return true;
+  });
+  if (!valid.length) return;
+  if (valid.length > available) toast("La galerie contient au maximum 8 photos. Retirez-en une pour faire de la place.");
+  const selected = valid.slice(0, available);
+  if (selected.length) void loadPhotos(selected.map((source) => ({ source, name: source.name || "Votre photo" })));
 }
 
 async function changeQuality(quality) {
-  if (state.loading || quality === state.quality) return;
+  if (state.loading || state.morph || quality === state.quality) return;
   state.quality = quality;
   state.autoFactor = 1;
   state.adaptations = 0;
@@ -394,7 +500,7 @@ function setupUI() {
   $("upload-button").addEventListener("click", () => $("file-input").click());
   $("mobile-upload").addEventListener("click", () => $("file-input").click());
   $("file-input").addEventListener("change", (event) => {
-    importFile(event.target.files?.[0]);
+    importFiles(event.target.files || []);
     event.target.value = "";
   });
   $("demo-button").addEventListener("click", () => {
@@ -409,6 +515,10 @@ function setupUI() {
   });
   $("wave-button").addEventListener("click", toggleWave);
   $("burst-button").addEventListener("click", triggerExplosion);
+  $("wind-button").addEventListener("click", triggerWind);
+  $("previous-photo").addEventListener("click", () => stepPhoto(-1));
+  $("next-photo").addEventListener("click", () => stepPhoto(1));
+  $("remove-photo").addEventListener("click", removePhoto);
   for (const id of ["depth-amount", "effect-intensity"]) {
     const input = $(id);
     const refresh = () => {
@@ -423,7 +533,7 @@ function setupUI() {
   }
   $("pause-button").addEventListener("click", togglePause);
   $("scatter-button").addEventListener("click", () => {
-    if (!state.image || state.loading) return;
+    if (!state.image || state.loading || state.morph) return;
     if (
       (state.transition && state.transition.to === 0) ||
       (!state.transition && state.progress < 0.5)
@@ -532,7 +642,7 @@ function setupUI() {
     event.preventDefault();
     dragDepth = 0;
     $("drop-overlay").hidden = true;
-    importFile(event.dataTransfer?.files?.[0]);
+    importFiles(event.dataTransfer?.files || []);
   });
   window.addEventListener("blur", () => {
     $("drop-overlay").hidden = true;
@@ -622,6 +732,15 @@ function tick(now) {
   lastFrame = now;
   if (!state.paused && !state.loading && !field.contextLost) {
     state.time += delta;
+    if (state.morph) {
+      state.morph.elapsed += delta;
+      const fraction = Math.min(1, state.morph.elapsed / state.morph.seconds);
+      field.uniforms.uMorph.value = fraction;
+      if (fraction >= 1) {
+        state.morph = null;
+        updateUI();
+      }
+    }
     if (state.transition) {
       const transition = state.transition;
       transition.elapsed += delta;
@@ -642,7 +761,7 @@ function tick(now) {
     updateUI();
     uiTime = now;
   }
-  if (state.image && !state.loading && !field.contextLost) {
+  if (state.image && !state.loading && !state.morph && !field.contextLost) {
     state.frames++;
     state.frameMean = state.frameMean * 0.97 + Math.min(rawDelta, 100) * 0.03;
     if (
