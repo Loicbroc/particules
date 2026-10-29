@@ -1245,3 +1245,128 @@ kbd {
     font-size: 9px;
   }
 }
+
+.scene-effects {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.touch-modes { display: none; }
+#progress-label:empty { display: none; }
+
+/* Mobile reserves one compact dock and gives the remaining viewport to the photo. */
+@media (max-width: 900px) {
+  #app { height: 100dvh; }
+  .header { height: 68px; padding: 0 16px; gap: 10px; align-items: flex-start; }
+  .header .brand { margin-top: 13px; font-size: 24px; }
+  .header-actions { margin-top: 15px; gap: 5px; }
+  .header-actions .icon-button { width: 32px; height: 32px; }
+  .scene-status {
+    top: 51px;
+    left: 16px;
+    transform: none;
+    justify-content: flex-start;
+    max-width: calc(100% - 32px);
+    font-size: 8px;
+    letter-spacing: 0.65px;
+    gap: 5px;
+  }
+  .scene-bottom {
+    left: 12px;
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    transform: none;
+    max-width: none;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .scene-effects {
+    width: 100%;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    scrollbar-width: none;
+    padding: 1px;
+  }
+  .scene-effects::-webkit-scrollbar { display: none; }
+  .scene-effects .view-controls,
+  .scene-effects .effect-shortcuts { display: contents; }
+  .scene-effects .effect-button {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 10px;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .scene-effects .effect-button svg { width: 15px; height: 15px; }
+  .interaction-hint {
+    align-self: center;
+    max-width: 100%;
+    margin: 0;
+    font-size: 9px;
+    line-height: 12px;
+    gap: 5px;
+  }
+  .interaction-hint svg { width: 12px; height: 12px; }
+  .action-row { width: 100%; gap: 6px; justify-content: space-between; }
+  .touch-modes { display: flex; gap: 2px; }
+  .touch-mode {
+    width: 44px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid #33483c;
+    border-radius: 7px;
+    background: #101b16e8;
+    color: #9eb1a6;
+    font-size: 8px;
+  }
+  .touch-mode svg { width: 16px; height: 16px; }
+  .touch-mode.active { background: #284331; border-color: #6b9e7c; color: #d3f5df; }
+  .transport { gap: 2px; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: none; backdrop-filter: none; }
+  .transport-separator { display: none; }
+  .transport-button,
+  .play-button {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 50%;
+  }
+  .transport-button { border: 1px solid #33483c; background: #101b16e8; }
+  .transport-button span { display: none; }
+  .transport-button svg { width: 18px; height: 18px; }
+  .play-button svg { width: 18px; height: 18px; }
+  .mobile-upload {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+    font-size: 0;
+  }
+  .mobile-upload svg { width: 20px; height: 20px; }
+  .timeline, .footer { display: none; }
+  .toast { bottom: 142px; }
+}
+@media (max-width: 900px) and (max-height: 520px) {
+  .header { height: 62px; }
+  .scene-bottom { gap: 5px; bottom: max(6px, env(safe-area-inset-bottom)); }
+  .scene-effects .effect-button { min-height: 34px; padding: 6px 10px; }
+  .interaction-hint { display: none; }
+}

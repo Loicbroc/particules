@@ -25,6 +25,7 @@ const state = {
   relief: false,
   wave: false,
   volume: true,
+  touchMode: "rotate",
   depthBusy: false,
   gallery: [],
   morph: null,
@@ -206,6 +207,7 @@ function updateUI() {
     ? state.transition.to === 0
     : state.progress < 0.5;
   $("scatter-label").textContent = dispersed ? "Recomposer" : "Disperser";
+  $("scatter-button").setAttribute("aria-label", dispersed ? "Recomposer l’image" : "Disperser l’image");
   $("scatter-icon").setAttribute(
     "href",
     dispersed ? "#i-gather" : "#i-scatter",
@@ -502,6 +504,19 @@ async function toggleFullscreen() {
 }
 
 function setupUI() {
+  for (const [id, mode] of [["touch-rotate", "rotate"], ["touch-wind", "wind"]]) {
+    $(id).addEventListener("click", () => {
+      state.touchMode = mode;
+      for (const [buttonId, value] of [["touch-rotate", "rotate"], ["touch-wind", "wind"]]) {
+        $(buttonId).classList.toggle("active", value === mode);
+        $(buttonId).setAttribute("aria-pressed", String(value === mode));
+      }
+      field?.setOrbitDragging(false);
+      if (touchDevice) $("interaction-hint").textContent = mode === "rotate"
+        ? "Glissez pour tourner · Pincez pour zoomer"
+        : "Glissez pour souffler · Pincez pour zoomer";
+    });
+  }
   $("volume-button").addEventListener("click", () => {
     if (!state.image || state.loading || state.morph) return;
     state.volume = !state.volume;
@@ -667,7 +682,7 @@ function setupUI() {
   });
   if (touchDevice)
     $("interaction-hint").textContent =
-      "1 doigt : envol · 2 doigts : tourner / zoomer";
+      "Glissez pour tourner · Pincez pour zoomer";
 }
 
 function setupPointer() {
@@ -691,7 +706,7 @@ function setupPointer() {
       tapStart = null; mouseDrag = null;
       pinchDistance = distance(); pinchZoom = field.zoom; centroid = centre();
       field.setOrbitDragging(true);
-    } else if (event.pointerType === "mouse") {
+    } else if (event.pointerType === "mouse" || state.touchMode === "rotate") {
       mouseDrag = { x: event.clientX, y: event.clientY, moved: false };
       field.setOrbitDragging(true);
     } else field.setPointer(event.clientX, event.clientY);
@@ -736,6 +751,7 @@ function setupPointer() {
     pointers.clear(); mouseDrag = null; tapStart = null; centroid = null;
     field.setOrbitDragging(false);
   });
+  window.visualViewport?.addEventListener("resize", () => field.resize());
 }
 
 function tick(now) {

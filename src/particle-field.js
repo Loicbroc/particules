@@ -492,7 +492,12 @@ export class ParticleField {
     const sidebar = desktop ? (width > 1100 ? 330 : 290) : 0;
     const landscape = !desktop && height < 520;
     const availableWidth = width - sidebar - (desktop ? 70 : 34);
-    const availableHeight = height - (landscape ? 244 : desktop ? 465 : 485);
+    const header = !desktop && document.querySelector(".header")?.getBoundingClientRect();
+    const dock = !desktop && document.querySelector(".scene-bottom")?.getBoundingClientRect();
+    const sceneTop = this.container.getBoundingClientRect().top;
+    const imageTop = !desktop ? Math.max(68, (header?.bottom || 68) - sceneTop) + 12 : 0;
+    const imageBottom = !desktop ? (dock?.top ? dock.top - sceneTop : height - 130) - 12 : 0;
+    const availableHeight = desktop ? height - 465 : imageBottom - imageTop;
     const imageWidth = Math.min(
       availableWidth,
       Math.max(60, availableHeight) * this.aspect,
@@ -502,7 +507,7 @@ export class ParticleField {
     this.group.scale.setScalar(this.baseScale * this.zoom);
     this.group.position.set(
       sidebar * 0.5 * unit,
-      (landscape ? 47 : desktop ? 63 : 92) * unit,
+      (desktop ? 63 : height / 2 - (imageTop + imageBottom) / 2) * unit,
       0,
     );
     this.group.updateMatrixWorld(true);
