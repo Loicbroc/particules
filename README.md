@@ -1,13 +1,13 @@
 # Particules
 
-Application Three.js qui recompose une photo avec un nuage de particules en spirale. La photo est décodée et traitée dans le navigateur, sans envoi ni stockage sur un serveur.
+Application Three.js qui recompose une photo à partir d’un ciel de particules lumineuses. La photo est décodée et traitée dans le navigateur, sans envoi ni stockage sur un serveur.
 
 ## Fonctionnalités
 
 - Démonstration animée dès l’ouverture.
 - Import local par le sélecteur de fichiers ou par glisser-déposer : JPEG, PNG, WebP et autres formats décodables par le navigateur. Maximum 50 Mo par fichier.
 - Couleurs et proportions conservées ; transparence des PNG prise en compte.
-- Animation sur le GPU : trois courants en spirale convergent pour former la photo.
+- Animation sur le GPU : un champ d’étoiles réparties sur tout l’écran, en profondeur, se rassemble progressivement pour former la photo. Scintillement discret, halos et parallaxe ; nombre d’étoiles visibles adapté à la densité pour conserver un ciel aéré.
 - Envol progressif au survol ou au toucher : chaque particule garde son élan et revient doucement former la photo, même après le passage du pointeur.
 - Relief 2,5D : un relief artistique est créé immédiatement sur l’appareil, puis affiné avec Depth Anything V2 Small si le modèle est disponible. Un échec du téléchargement ou de l’inférence conserve le relief artistique et permet de réessayer l’IA. Le mode artistique utilise une interprétation des couleurs et de la composition, sans prétendre représenter une profondeur réelle.
 - Vague en profondeur, activable et réglable.
@@ -16,7 +16,7 @@ Application Three.js qui recompose une photo avec un nuage de particules en spir
 - Souffle de vent : un front traverse l’image, emporte les grains en traînées puis les laisse se reformer. Son intensité se règle avec celle des autres effets.
 - Explosion en volume depuis le bouton ou par un clic/toucher bref sur l’image, suivie d’un retour progressif à la photo.
 - Rejouer, pause/reprise, disperser et recomposer.
-- Durée de formation et intensité du tourbillon réglables.
+- Durée de formation et dérive des étoiles réglables. Disperser ramène la photo au ciel étoilé.
 - Densité Fluide / Auto / Détail. Auto réduit la densité lorsque le rythme d’affichage devient trop faible.
 - Zoom par molette ou pincement à deux doigts ; plein écran lorsque le navigateur le permet.
 - Interface adaptée aux petits écrans, réglages dans un panneau repliable.

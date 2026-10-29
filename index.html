@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#070a0f" />
     <meta
       name="description"
-      content="Transformez votre photo en un nuage de particules tournoyantes. Une expérience Three.js interactive, directement dans votre navigateur."
+      content="Transformez votre photo en un nuage de particules lumineuses. Une expérience Three.js interactive, directement dans votre navigateur."
     />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <title>Particules — La photographie en mouvement</title>
@@ -194,14 +194,14 @@
             step="1"
             value="8"
           />
-          <label class="range-label" for="swirl"
-            >Tourbillon<output id="swirl-value" for="swirl">65 %</output></label
+          <label class="range-label" for="drift"
+            >Dérive des étoiles<output id="drift-value" for="drift">65 %</output></label
           >
           <input
             class="range"
-            id="swirl"
+            id="drift"
             type="range"
-            min="10"
+            min="0"
             max="100"
             step="1"
             value="65"
@@ -353,7 +353,7 @@
       </div>
       <div id="loading" class="loading">
         <span></span>
-        <p id="loading-label">La lumière se rassemble…</p>
+        <p id="loading-label">Les étoiles se rassemblent…</p>
       </div>
       <div id="toast" class="toast" role="status" hidden></div>
       <div id="renderer-error" class="renderer-error" role="alert" hidden>
@@ -380,7 +380,7 @@
       <h2>Votre image,<br />en mouvement.</h2>
       <p>
         Importez une photo : chaque point en conserve une couleur. Les
-        particules tournent dans l’espace avant de retrouver leur place.
+        étoiles dispersées dans l’espace se rassemblent pour former votre image.
       </p>
       <ul>
         <li>

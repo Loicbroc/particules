@@ -38,7 +38,7 @@ export const vertexShader = /* glsl */ `
   attribute float aFromOpacity;
   uniform float uTime;
   uniform float uProgress;
-  uniform float uSwirl;
+  uniform float uDrift;
   uniform float uSize;
   uniform float uPixelRatio;
   uniform float uInteractionTime;
@@ -54,24 +54,20 @@ export const vertexShader = /* glsl */ `
   uniform float uWindTime;
   uniform float uWindStrength;
   uniform float uAspect;
+  uniform vec2 uViewport;
+  uniform vec2 uSkyPointer;
+  uniform float uStarFraction;
   varying vec3 vColor;
   varying float vOpacity;
   varying float vFormed;
   varying float vWind;
+  varying float vSky;
+  varying float vSparkle;
 
   void main() {
-    float p = smoothstep(aRandom.w * 0.24, 1.0, uProgress);
+    float formation = clamp((uProgress - 0.12) / 0.88, 0.0, 1.0);
+    float p = smoothstep(aRandom.w * 0.28, 1.0, formation);
     float remaining = 1.0 - p;
-    float lane = floor(aRandom.y * 3.0);
-    float radius = 0.24 + pow(aRandom.z, 0.75) * 3.7;
-    float angle = lane * 2.0944 + radius * 1.65 + (aRandom.x - 0.5) * 0.34;
-    angle += (uTime * 0.30 + remaining * 11.0) * uSwirl;
-    vec3 vortex = vec3(
-      cos(angle) * radius,
-      sin(angle) * radius * 0.72,
-      (aRandom.w - 0.5) * 0.75 + sin(angle + lane) * 0.8
-    );
-    vortex.y += sin(angle * 2.0 + lane) * 0.18;
     vec3 target = position;
     float depth = (aDepth - 0.5) * uDepth;
     // Preserve the original photograph when viewed head-on, then reveal its
@@ -82,7 +78,7 @@ export const vertexShader = /* glsl */ `
     target.z += sin(wavePhase) * uWave;
     target.y += cos(wavePhase) * uWave * 0.065;
     target.z += sin(uTime * 0.55 + position.x * 2.0 + position.y) * 0.012 * uMotion;
-    vec3 pos = mix(vortex, target, p);
+    vec3 pos = target;
     float morph = smoothstep(0.0, 1.0, uMorph);
     float crossing = sin(morph * 3.14159265);
     vec3 passage = vec3(
@@ -133,13 +129,35 @@ export const vertexShader = /* glsl */ `
       airborne = max(airborne, wind * 0.65);
     }
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    // Sample the camera frustum, not the photograph's bounds. The sky remains
+    // immersive for a portrait, a panorama, a mobile screen or a changed zoom.
+    float distance = 4.0 + aRandom.z * 15.0;
+    vec2 sky = (aRandom.xy - 0.5) * 1.14;
+    sky += vec2(sin(uTime * 0.065 + aRandom.z * 6.2831853), cos(uTime * 0.05 + aRandom.w * 6.2831853)) * 0.012 * uDrift * uMotion;
+    sky += uSkyPointer * (1.0 - distance / 22.0) * vec2(-0.035, 0.025) * uMotion;
+    vec3 skyPosition = vec3(sky * uViewport * (distance / 7.0), -distance);
+    float skyWeight = remaining * morph;
+    mvPosition.xyz = mix(mvPosition.xyz, skyPosition, skyWeight);
+    // Slightly curved paths give the gathering a sense of volume without
+    // imposing a shared spiral on the cloud.
+    mvPosition.xy += vec2(sin(aRandom.w * 6.2831853), cos(aRandom.z * 6.2831853)) * sin(p * 3.14159265) * 0.18 * uDrift * uMotion * morph;
     gl_Position = projectionMatrix * mvPosition;
     float depthFootprint = mix(1.0, (7.0 - depth * uWorldScale) / 7.0, p);
-    gl_PointSize = clamp(mix(uFromSize, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.35, 1.0, p) * mix(1.0, 0.7, airborne) * (1.0 + wind * 1.6), 1.0, 30.0);
-    vColor = mix(aFromColor, color, morph);
-    vOpacity = mix(aFromOpacity, aOpacity, morph) * mix(0.62, 1.0, p);
+    float photoSize = mix(uFromSize, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + wind * 1.6);
+    float starSeed = fract(aRandom.w * 19.19 + aRandom.z * 73.13);
+    float magnitude = pow(fract(aRandom.x * 31.31 + aRandom.w * 7.17), 5.0);
+    float starSize = (1.7 + magnitude * 6.5) * (1.25 - distance * 0.025) * uPixelRatio;
+    gl_PointSize = clamp(mix(photoSize, starSize, skyWeight), 1.0, 30.0);
+    float twinkle = 0.82 + sin(uTime * (0.7 + aRandom.z) + aRandom.w * 6.2831853) * 0.18 * uMotion;
+    vec3 starlight = mix(vec3(0.62, 0.77, 1.0), vec3(1.0, 0.84, 0.64), aRandom.y) * (0.65 + magnitude * 1.8) * twinkle;
+    vColor = mix(mix(aFromColor, color, morph), starlight, skyWeight);
+    float starVisible = 1.0 - step(uStarFraction, starSeed);
+    float reveal = mix(starVisible, 1.0, smoothstep(0.18, 0.9, p));
+    vOpacity = mix(aFromOpacity, aOpacity, morph) * mix(1.0, reveal, morph) * mix(0.8, 1.0, p);
     vFormed = p * (1.0 - airborne * 0.45) * (1.0 - crossing * 0.6 * uMorphMotion);
     vWind = wind;
+    vSky = skyWeight;
+    vSparkle = step(0.93, magnitude) * skyWeight;
   }
 `;
 
@@ -148,7 +166,10 @@ export const fragmentShader = /* glsl */ `
   varying float vOpacity;
   varying float vFormed;
   varying float vWind;
+  varying float vSky;
+  varying float vSparkle;
   void main() {
+    if (vOpacity < 0.005) discard;
     vec2 grain = gl_PointCoord - vec2(0.5);
     grain.y *= 1.0 + vWind * 1.6;
     float radius = length(grain);
@@ -156,6 +177,10 @@ export const fragmentShader = /* glsl */ `
     float soft = exp(-radius * radius * 12.0) * (1.0 - smoothstep(0.4, 0.5, radius));
     float crisp = 1.0 - smoothstep(0.38, 0.5, radius);
     float alpha = mix(soft, crisp, vFormed) * vOpacity;
+    float starCore = exp(-radius * radius * 34.0);
+    float halo = exp(-radius * radius * 8.0) * 0.24;
+    float rays = (exp(-abs(grain.x) * 70.0) + exp(-abs(grain.y) * 70.0)) * exp(-radius * 5.0) * 0.24 * vSparkle;
+    alpha = mix(alpha, (starCore + halo + rays) * vOpacity, vSky);
     vec3 light = vColor * mix(1.4, 1.0, vFormed);
     gl_FragColor = vec4(light, alpha);
     #include <colorspace_fragment>
@@ -227,7 +252,7 @@ export class ParticleField {
     this.uniforms = {
       uTime: { value: 0 },
       uProgress: { value: 0 },
-      uSwirl: { value: 0.95 },
+      uDrift: { value: 0.65 },
       uSize: { value: 2.4 },
       uPixelRatio: { value: this.renderer.getPixelRatio() },
       uInteractionTime: { value: 0 },
@@ -243,6 +268,9 @@ export class ParticleField {
       uWindTime: { value: -100 },
       uWindStrength: { value: 0 },
       uAspect: { value: 1.5 },
+      uViewport: { value: new Vector2() },
+      uSkyPointer: { value: new Vector2() },
+      uStarFraction: { value: 1 },
     };
     this.material = new ShaderMaterial({
       uniforms: this.uniforms,
@@ -411,6 +439,7 @@ export class ParticleField {
     this.points.frustumCulled = false;
     this.group.add(this.points);
     this.count = opacities.length;
+    this.uniforms.uStarFraction.value = Math.min(1, 3400 / this.count);
     this.container.dataset.particleCount = String(this.count);
     this.resize();
     this.renderer.compile(this.scene, this.camera);
@@ -428,6 +457,7 @@ export class ParticleField {
     const visibleHeight =
       2 * Math.tan(MathUtils.degToRad(this.camera.fov / 2)) * 7;
     const unit = visibleHeight / height;
+    this.uniforms.uViewport.value.set(visibleHeight * width / height, visibleHeight);
     const desktop = width > 900;
     const sidebar = desktop ? (width > 1100 ? 330 : 290) : 0;
     const landscape = !desktop && height < 520;
@@ -608,6 +638,7 @@ export class ParticleField {
     const viewY = this.pointerActive ? this.viewTarget.y : orbitY;
     this.view.x = MathUtils.damp(this.view.x, viewX, 4, delta);
     this.view.y = MathUtils.damp(this.view.y, viewY, 4, delta);
+    this.uniforms.uSkyPointer.value.copy(this.view);
     this.viewAmount = MathUtils.damp(this.viewAmount, this.effects.relief ? 1 : this.effects.wave ? 0.3 : 0, 5, delta);
     const viewAmount = this.viewAmount;
     this.group.rotation.y = this.view.x * 0.22 * viewAmount;

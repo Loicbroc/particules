@@ -214,7 +214,7 @@ function updateUI() {
   $("pause-button").title = state.paused
     ? "Reprendre (Espace)"
     : "Pause (Espace)";
-  let label = "La lumière se rassemble";
+  let label = "Les étoiles se rassemblent";
   let phase = "forming";
   if (!state.image) {
     label = "Importez votre première photo";
@@ -240,7 +240,7 @@ function updateUI() {
       : "L’image a trouvé sa forme";
     phase = "formed";
   } else if (!state.transition) {
-    label = "Les particules en liberté";
+    label = "Un ciel de particules";
     phase = "scattered";
   }
   if ($("status-label").textContent !== label)
@@ -541,7 +541,7 @@ function setupUI() {
       form();
     else transitionTo(0, reducedMotion ? 0.3 : 2.2);
   });
-  for (const input of document.querySelectorAll("#duration, #swirl")) {
+  for (const input of document.querySelectorAll("#duration, #drift")) {
     const refresh = () => {
       input.style.setProperty(
         "--fill",
@@ -556,9 +556,9 @@ function setupUI() {
         state.duration = nextDuration;
         $("duration-value").textContent = `${nextDuration} s`;
       } else {
-        $("swirl-value").textContent = `${input.value} %`;
+        $("drift-value").textContent = `${input.value} %`;
         if (field)
-          field.uniforms.uSwirl.value = 0.2 + (Number(input.value) / 100) * 1.5;
+          field.uniforms.uDrift.value = Number(input.value) / 100;
       }
     };
     input.addEventListener("input", refresh);
@@ -795,7 +795,7 @@ async function start() {
         field.resize();
       },
     });
-    field.uniforms.uSwirl.value = 0.2 + (Number($("swirl").value) / 100) * 1.5;
+    field.uniforms.uDrift.value = Number($("drift").value) / 100;
     field.setDepthAmount(Number($("depth-amount").value) / 100);
     field.setEffectIntensity(Number($("effect-intensity").value) / 100);
     setupPointer();
