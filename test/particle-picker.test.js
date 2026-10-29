@@ -71,3 +71,24 @@ test("a gesture from the side can lend momentum along the photograph's depth", (
   assert.equal(brush.kick(3045, 1, 0, 0, 6, 2, 0.02), false);
   assert.equal(brush.zData[3045], -6);
 });
+
+test("one swept hover query covers a fast gesture without gaps or excess grains", () => {
+  const { field, orbit, count } = fixture();
+  orbit.yaw = orbit.targetYaw = 1.2;
+  orbit.update(field.camera, field.group.position, 0);
+  const from = new Vector2(-0.15, -0.08), to = new Vector2(0.3, 0.18);
+  field.ndc.copy(from).add(to).multiplyScalar(0.5);
+  ParticleField.prototype.projectPointer.call(field);
+  const dx = (to.x - from.x) * 600, dy = (to.y - from.y) * 400;
+  const actual = new Set(), expected = new Set(), radius = 24;
+  field.picker.query(field.localRay, field.pickMatrix, field.ndc, 1200, 800,
+    radius + Math.hypot(dx, dy) / 2, (i) => actual.add(i), { from, to, radius });
+  for (let i = 0; i < count; i++) {
+    const p = new Vector3().fromArray(field.picker.positions, i * 3).applyMatrix4(field.group.matrixWorld).project(field.camera);
+    const x = (p.x - from.x) * 600, y = (p.y - from.y) * 400;
+    const t = Math.max(0, Math.min(1, (x * dx + y * dy) / (dx * dx + dy * dy)));
+    if (Math.hypot(x - dx * t, y - dy * t) < radius) expected.add(i);
+  }
+  assert.ok(actual.size > 0);
+  assert.deepEqual(actual, expected);
+});

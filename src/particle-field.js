@@ -713,19 +713,18 @@ export class ParticleField {
         dx * this.uniforms.uViewport.value.x / (2 * scale),
         dy * this.uniforms.uViewport.value.y / (2 * scale), delta);
       this.flowVelocity.set(this.brushVelocity.x, this.brushVelocity.y, 0).applyQuaternion(this.camera.quaternion);
-      const samples = Math.min(12, Math.max(1, Math.ceil(Math.hypot(dx * this.width / 2, dy * this.height / 2) / 24)));
+      // Query the swept footprint once, so fast gestures do not multiply the
+      // cost of traversing a dense 3D cloud.
+      this.sampleNdc.copy(start).add(this.pointer).multiplyScalar(0.5);
+      this.projectPointer(this.sampleNdc);
+      const radius = 54 + Math.hypot(dx * this.width / 2, dy * this.height / 2) / 2;
       let first = Infinity, last = -1;
-      for (let sample = 1; sample <= samples; sample++) {
-        const t = sample / samples;
-        this.sampleNdc.set(start.x + dx * t, start.y + dy * t);
-        this.projectPointer(this.sampleNdc);
-        this.picker.query(this.localRay, this.pickMatrix, this.sampleNdc, this.width, this.height, 54, (index, falloff) => {
-          if (this.flightBrush.kick(index, falloff, this.flowVelocity.x, this.flowVelocity.y, this.flowVelocity.z,
-            this.interactionTime, delta / samples)) {
-            first = Math.min(first, index * 4); last = Math.max(last, index * 4 + 4);
-          }
-        });
-      }
+      this.picker.query(this.localRay, this.pickMatrix, this.sampleNdc, this.width, this.height, radius, (index, falloff) => {
+        if (this.flightBrush.kick(index, falloff, this.flowVelocity.x, this.flowVelocity.y, this.flowVelocity.z,
+          this.interactionTime, delta)) {
+          first = Math.min(first, index * 4); last = Math.max(last, index * 4 + 4);
+        }
+      }, { from: start, to: this.pointer, radius: 54 });
       if (last >= 0) {
         this.flightAttribute.clearUpdateRanges();
         this.flightAttribute.addUpdateRange(first, last - first);

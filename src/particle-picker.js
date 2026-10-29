@@ -26,7 +26,7 @@ export class ParticlePicker {
       this.next[i] = this.heads[bin]; this.heads[bin] = i;
     }
   }
-  query(ray, matrix, ndc, width, height, radius, visit) {
+  query(ray, matrix, ndc, width, height, radius, visit, sweep = null) {
     const { min, max, cell, positions, size, heads, next } = this;
     const origin = [ray.origin.x, ray.origin.y, ray.origin.z];
     const direction = [ray.direction.x, ray.direction.y, ray.direction.z];
@@ -50,6 +50,11 @@ export class ParticlePicker {
     if (!this.generation) { this.visited.fill(0); this.generation = 1; }
     const generation = this.generation, e = matrix.elements;
     const [nx, ny, nz] = size, padding = Math.ceil(reach / cell) + 1;
+    const half = cell / 2;
+    const wRadius = half * (Math.abs(e[3]) + Math.abs(e[7]) + Math.abs(e[11]));
+    const dx = sweep ? (sweep.to.x - sweep.from.x) * width / 2 : 0;
+    const dy = sweep ? (sweep.to.y - sweep.from.y) * height / 2 : 0;
+    const lengthSquared = dx * dx + dy * dy;
     for (let t = enter; t <= leave + cell; t += cell) {
       const bx = Math.floor((origin[0] + direction[0] * t - min[0]) / cell);
       const by = Math.floor((origin[1] + direction[1] * t - min[1]) / cell);
@@ -60,14 +65,32 @@ export class ParticlePicker {
             const bin = (z * ny + y) * nx + x;
             if (this.visited[bin] === generation) continue;
             this.visited[bin] = generation;
+            // Reject projected cell bounds before touching its particles. This
+            // also keeps dense side views inexpensive in Detail mode.
+            const cx = min[0] + (x + 0.5) * cell, cy = min[1] + (y + 0.5) * cell, cz = min[2] + (z + 0.5) * cell;
+            const cw = e[3] * cx + e[7] * cy + e[11] * cz + e[15];
+            if (cw > wRadius) {
+              const sx = (e[0] * cx + e[4] * cy + e[8] * cz + e[12]) / cw;
+              const sy = (e[1] * cx + e[5] * cy + e[9] * cz + e[13]) / cw;
+              const rx = half * (Math.abs(e[0] - sx * e[3]) + Math.abs(e[4] - sx * e[7]) + Math.abs(e[8] - sx * e[11])) / (cw - wRadius);
+              const ry = half * (Math.abs(e[1] - sy * e[3]) + Math.abs(e[5] - sy * e[7]) + Math.abs(e[9] - sy * e[11])) / (cw - wRadius);
+              if ((Math.abs(sx - ndc.x) - rx) * width / 2 > radius || (Math.abs(sy - ndc.y) - ry) * height / 2 > radius) continue;
+            }
             for (let i = heads[bin]; i >= 0; i = next[i]) {
               const px = positions[i * 3], py = positions[i * 3 + 1], pz = positions[i * 3 + 2];
               const w = e[3] * px + e[7] * py + e[11] * pz + e[15];
               if (w <= 0) continue;
               const sx = (e[0] * px + e[4] * py + e[8] * pz + e[12]) / w;
               const sy = (e[1] * px + e[5] * py + e[9] * pz + e[13]) / w;
-              const distance = Math.hypot((sx - ndc.x) * width / 2, (sy - ndc.y) * height / 2);
-              if (distance < radius) visit(i, 1 - distance / radius);
+              let pxDistance = (sx - (sweep ? sweep.from.x : ndc.x)) * width / 2;
+              let pyDistance = (sy - (sweep ? sweep.from.y : ndc.y)) * height / 2;
+              if (lengthSquared > 0) {
+                const t = Math.max(0, Math.min(1, (pxDistance * dx + pyDistance * dy) / lengthSquared));
+                pxDistance -= dx * t; pyDistance -= dy * t;
+              }
+              const distance = Math.hypot(pxDistance, pyDistance);
+              const brushRadius = sweep ? sweep.radius : radius;
+              if (distance < brushRadius) visit(i, 1 - distance / brushRadius);
             }
           }
     }
