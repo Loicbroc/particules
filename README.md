@@ -8,7 +8,7 @@ Application Three.js qui recompose une photo avec un nuage de particules en spir
 - Import local par le sélecteur de fichiers ou par glisser-déposer : JPEG, PNG, WebP et autres formats décodables par le navigateur. Maximum 50 Mo par fichier.
 - Couleurs et proportions conservées ; transparence des PNG prise en compte.
 - Animation sur le GPU : trois courants en spirale convergent pour former la photo.
-- Répulsion au survol ou au toucher, puis retour des particules à leur position.
+- Envol progressif au survol ou au toucher : chaque particule garde son élan et revient doucement former la photo, même après le passage du pointeur.
 - Rejouer, pause/reprise, disperser et recomposer.
 - Durée de formation et intensité du tourbillon réglables.
 - Densité Fluide / Auto / Détail. Auto réduit la densité lorsque le rythme d’affichage devient trop faible.

@@ -407,7 +407,7 @@ function setupUI() {
   });
   if (touchDevice)
     $("interaction-hint").textContent =
-      "Glissez pour déplacer les particules · Pincez pour zoomer";
+      "Glissez pour faire s’envoler les particules · Pincez pour zoomer";
 }
 
 function setupPointer() {

@@ -2,6 +2,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
+  DynamicDrawUsage,
   Float32BufferAttribute,
   Group,
   MathUtils,
@@ -17,17 +18,18 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
+import { FlightBrush } from "./flight-brush.js";
 
 const vertexShader = /* glsl */ `
   attribute vec4 aRandom;
   attribute float aOpacity;
+  attribute vec4 aFlight;
   uniform float uTime;
   uniform float uProgress;
   uniform float uSwirl;
   uniform float uSize;
   uniform float uPixelRatio;
-  uniform vec2 uPointer;
-  uniform float uPointerStrength;
+  uniform float uInteractionTime;
   uniform float uMotion;
   varying vec3 vColor;
   varying float vOpacity;
@@ -49,18 +51,32 @@ const vertexShader = /* glsl */ `
     vec3 target = position;
     target.z += sin(uTime * 0.55 + position.x * 2.0 + position.y) * 0.012 * uMotion;
     vec3 pos = mix(vortex, target, p);
-    vec2 offset = pos.xy - uPointer;
-    float distanceToPointer = length(offset);
-    float influence = 1.0 - smoothstep(0.0, 0.36, distanceToPointer);
-    vec2 direction = offset / max(distanceToPointer, 0.001);
-    pos.xy += direction * influence * 0.30 * uPointerStrength;
-    pos.z += influence * 0.28 * uPointerStrength;
+    float age = uInteractionTime - aFlight.x;
+    float duration = 2.6 + aRandom.z * 1.8;
+    float airborne = 0.0;
+    if (aFlight.y > 0.0 && age >= 0.0 && age < duration) {
+      float launchAngle = aRandom.x * 6.2831853;
+      float speed = 0.45 + aRandom.y * 0.7;
+      vec3 velocity = vec3(
+        cos(launchAngle) * speed + aFlight.z * 0.16,
+        0.6 + aRandom.w * 0.9 + sin(launchAngle) * 0.25 + aFlight.w * 0.10,
+        (aRandom.y - 0.4) * 1.0
+      );
+      float departure = 1.0 - exp(-age * 3.0);
+      float returnToImage = 1.0 - smoothstep(0.8, duration, age);
+      vec3 flight = velocity * min(age, 1.2);
+      flight.x += sin(age * 2.1 + aRandom.y * 6.2831853) * 0.12 * departure;
+      flight.z += sin(age * 1.7 + aRandom.x * 6.2831853) * 0.16 * departure;
+      flight *= aFlight.y * returnToImage * smoothstep(0.55, 0.95, p);
+      pos += flight;
+      airborne = clamp(length(flight), 0.0, 1.0);
+    }
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = clamp(uSize * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.35, 1.0, p), 1.0, 30.0);
+    gl_PointSize = clamp(uSize * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.35, 1.0, p) * mix(1.0, 0.7, airborne), 1.0, 30.0);
     vColor = color;
     vOpacity = aOpacity * mix(0.62, 1.0, p);
-    vFormed = p;
+    vFormed = p * (1.0 - airborne * 0.45);
   }
 `;
 
@@ -124,7 +140,8 @@ export class ParticleField {
     this.pointer = new Vector2(100, 100);
     this.pointerTarget = new Vector2(100, 100);
     this.pointerActive = 0;
-    this.pointerStrength = 0;
+    this.interactionTime = 0;
+    this.lastBrush = null;
     this.zoom = 1;
     this.aspect = 1.5;
     this.gridWidth = 400;
@@ -135,8 +152,7 @@ export class ParticleField {
       uSwirl: { value: 0.95 },
       uSize: { value: 2.4 },
       uPixelRatio: { value: this.renderer.getPixelRatio() },
-      uPointer: { value: this.pointer },
-      uPointerStrength: { value: 0 },
+      uInteractionTime: { value: 0 },
       uMotion: { value: reducedMotion ? 0 : 1 },
     };
     this.material = new ShaderMaterial({
@@ -203,10 +219,12 @@ export class ParticleField {
       colors = [],
       randoms = [],
       opacities = [];
+    const cellIndices = new Int32Array(gridWidth * gridHeight).fill(-1);
     for (let y = 0; y < gridHeight; y++) {
       for (let x = 0; x < gridWidth; x++) {
         const index = (y * gridWidth + x) * 4;
         if (data[index + 3] < 8) continue;
+        cellIndices[y * gridWidth + x] = opacities.length;
         positions.push(
           ((x + 0.5) / gridWidth - 0.5) * aspect * 2,
           (0.5 - (y + 0.5) / gridHeight) * 2,
@@ -238,6 +256,19 @@ export class ParticleField {
     geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
     geometry.setAttribute("aRandom", new Float32BufferAttribute(randoms, 4));
     geometry.setAttribute("aOpacity", new Float32BufferAttribute(opacities, 1));
+    this.flightBrush = new FlightBrush(
+      gridWidth,
+      gridHeight,
+      aspect,
+      cellIndices,
+      geometry.getAttribute("aRandom").array,
+    );
+    this.flightAttribute = new BufferAttribute(
+      this.flightBrush.data,
+      4,
+    ).setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aFlight", this.flightAttribute);
+    this.lastBrush = null;
     if (this.points) {
       this.group.remove(this.points);
       this.points.geometry.dispose();
@@ -285,6 +316,11 @@ export class ParticleField {
     // Slightly overlapping discs keep the completed image readable.
     this.uniforms.uSize.value =
       Math.max(1.0, (imageWidth / this.gridWidth) * 1.65) * this.zoom;
+    this.brushRadius = MathUtils.clamp(
+      100 / Math.max(1, (imageWidth / this.aspect) * this.zoom),
+      0.12,
+      0.42,
+    );
   }
 
   setZoom(zoom) {
@@ -310,19 +346,53 @@ export class ParticleField {
 
   clearPointer() {
     this.pointerActive = 0;
+    this.lastBrush = null;
   }
 
   render(delta, time) {
     if (this.contextLost) return;
     this.uniforms.uTime.value = time;
+    this.interactionTime += delta;
+    this.uniforms.uInteractionTime.value = this.interactionTime;
     this.pointer.lerp(this.pointerTarget, 1 - Math.exp(-delta * 20));
-    this.pointerStrength = MathUtils.damp(
-      this.pointerStrength,
-      this.pointerActive,
-      8,
-      delta,
-    );
-    this.uniforms.uPointerStrength.value = this.pointerStrength;
+    if (
+      this.pointerActive &&
+      this.flightBrush &&
+      this.uniforms.uProgress.value > 0.75
+    ) {
+      const start = this.lastBrush || this.pointer;
+      const dx = this.pointer.x - start.x;
+      const dy = this.pointer.y - start.y;
+      const samples = Math.min(
+        12,
+        Math.max(1, Math.ceil(Math.hypot(dx, dy) / (this.brushRadius * 0.45))),
+      );
+      let first = Infinity;
+      let last = -1;
+      for (let sample = 1; sample <= samples; sample++) {
+        const t = sample / samples;
+        const changed = this.flightBrush.stamp(
+          start.x + dx * t,
+          start.y + dy * t,
+          dx / Math.max(delta, 0.001),
+          dy / Math.max(delta, 0.001),
+          this.interactionTime,
+          delta / Math.sqrt(samples),
+          this.brushRadius,
+        );
+        if (changed) {
+          first = Math.min(first, changed.start);
+          last = Math.max(last, changed.start + changed.count);
+        }
+      }
+      if (last >= 0) {
+        this.flightAttribute.clearUpdateRanges();
+        this.flightAttribute.addUpdateRange(first, last - first);
+        this.flightAttribute.needsUpdate = true;
+      }
+      if (!this.lastBrush) this.lastBrush = new Vector2();
+      this.lastBrush.copy(this.pointer);
+    }
     if (!this.dust.userData.reducedMotion)
       this.dust.rotation.z = Math.sin(time * 0.025) * 0.025;
     this.renderer.render(this.scene, this.camera);
