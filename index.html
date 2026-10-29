@@ -42,6 +42,12 @@
           d="m3 3 6 6m12-6-6 6M3 21l6-6m12 6-6-6M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"
         />
       </symbol>
+      <symbol id="i-constellation" viewBox="0 0 24 24">
+        <path d="m5 5 8 3 6-4M13 8l-3 8 9 4M10 16l-7 4" />
+        <circle cx="5" cy="5" r="1.5" /><circle cx="13" cy="8" r="1.5" />
+        <circle cx="19" cy="4" r="1.5" /><circle cx="10" cy="16" r="1.5" />
+        <circle cx="19" cy="20" r="1.5" /><circle cx="3" cy="20" r="1.5" />
+      </symbol>
       <symbol id="i-settings" viewBox="0 0 24 24">
         <path d="M4 7h16M4 17h16M8 4v6m8 4v6" />
       </symbol>
@@ -273,6 +279,7 @@
         ><span id="progress-label"></span>
       </div>
       <div class="scene-bottom">
+        <div class="scene-dock">
         <div class="scene-effects">
         <div class="view-controls" role="group" aria-label="Volume et caméra">
           <button class="effect-button active" id="volume-button" aria-pressed="true" title="De face, une photo ; de côté, un volume de points">
@@ -306,19 +313,13 @@
           </button>
         </div>
         </div>
-        <p class="interaction-hint">
-          <svg><use href="#i-hand" /></svg
-          ><span id="interaction-hint"
-            >Survolez : envol · Glissez : tourner · Clic : explosion</span
-          >
-        </p>
         <div class="action-row">
           <div class="touch-modes" role="group" aria-label="Geste à un doigt">
             <button id="touch-rotate" class="touch-mode active" aria-pressed="true" title="Glisser à un doigt pour tourner">
               <svg><use href="#i-depth" /></svg><span>Tourner</span>
             </button>
             <button id="touch-wind" class="touch-mode" aria-pressed="false" title="Glisser à un doigt pour faire voler les particules">
-              <svg><use href="#i-wind" /></svg><span>Souffler</span>
+              <svg><use href="#i-hand" /></svg><span>Disperser</span>
             </button>
           </div>
         <div class="transport" aria-label="Commandes de l’animation">
@@ -341,9 +342,9 @@
             <svg><use id="pause-icon" href="#i-pause" /></svg>
           </button>
           <span class="transport-separator"></span>
-          <button class="transport-button" id="scatter-button" aria-label="Disperser">
-            <svg><use id="scatter-icon" href="#i-scatter" /></svg
-            ><span id="scatter-label">Disperser</span>
+          <button class="transport-button" id="scatter-button" aria-label="Passer en constellation">
+            <svg><use id="scatter-icon" href="#i-constellation" /></svg
+            ><span id="scatter-label">Constellation</span>
           </button>
         </div>
 <button
@@ -354,6 +355,13 @@
           <svg><use href="#i-plus" /></svg>Photo
         </button>
         </div>
+        </div>
+        <p class="interaction-hint">
+          <svg><use href="#i-hand" /></svg
+          ><span id="interaction-hint"
+            >Survolez : envol · Glissez : tourner · Clic : explosion</span
+          >
+        </p>
         <div
           class="timeline"
           role="progressbar"
@@ -414,15 +422,15 @@
           flottent puis reviennent doucement former l’image.
         </li>
         <li>
-          Utilisez <strong>Disperser</strong> puis <strong>Recomposer</strong>,
+          Utilisez <strong>Constellation</strong> puis <strong>Recomposer</strong>,
           ou <strong>Rejouer</strong>.
         </li>
-        <li>Zoomez avec la molette ou en pinçant à deux doigts.</li>
+        <li>Zoomez librement avec la molette ou en pinçant à deux doigts pour entrer dans les points. Déplacez-vous avec le clic droit glissé, ou en glissant à deux doigts sur téléphone. La rotation et le zoom fonctionnent aussi en mode <strong>Constellation</strong>.</li>
         <li>
           <strong>Volume 3D</strong> répartit les points en profondeur tout en
           conservant la photo vue de face. Cliquez-glissez pour tourner autour ;
           relâchez puis survolez pour faire voler les points depuis cet angle.
-          Sur téléphone, choisissez <strong>Tourner</strong> ou <strong>Souffler</strong>, puis glissez à un doigt. Pincez à deux doigts pour zoomer.
+          Sur téléphone, choisissez <strong>Tourner</strong> ou <strong>Disperser</strong>, puis glissez à un doigt. Pincez à deux doigts pour zoomer.
           <strong>Vue de face</strong> replace la caméra et le zoom à leur origine.
         </li>
         <li>

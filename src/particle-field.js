@@ -139,13 +139,14 @@ export const vertexShader = /* glsl */ `
       airborne = max(airborne, wind * 0.65);
     }
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-    // Sample the camera frustum, not the photograph's bounds. The sky remains
-    // immersive for a portrait, a panorama, a mobile screen or a changed zoom.
+    // Anchor the stars in world space using the original camera frustum.
+    // Orbit and dolly then reveal a real cloud instead of moving a screen layer.
     float distance = 4.0 + aRandom.z * 15.0;
     vec2 sky = (aRandom.xy - 0.5) * 1.14;
     sky += vec2(sin(uTime * 0.065 + aRandom.z * 6.2831853), cos(uTime * 0.05 + aRandom.w * 6.2831853)) * 0.012 * uDrift * uMotion;
     sky += uSkyPointer * (1.0 - distance / 22.0) * vec2(-0.035, 0.025) * uMotion;
-    vec3 skyPosition = vec3(sky * uViewport * (distance / 7.0), -distance);
+    vec3 starWorld = vec3(sky * uViewport * (distance / 7.0), 7.0 - distance);
+    vec3 skyPosition = (viewMatrix * vec4(starWorld, 1.0)).xyz;
     float skyWeight = remaining * morph;
     mvPosition.xyz = mix(mvPosition.xyz, skyPosition, skyWeight);
     // Slightly curved paths give the gathering a sense of volume without
@@ -158,8 +159,8 @@ export const vertexShader = /* glsl */ `
     float photoSize = mix(uFromSize * fromFootprint, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + streak * 1.6);
     float starSeed = fract(aRandom.w * 19.19 + aRandom.z * 73.13);
     float magnitude = pow(fract(aRandom.x * 31.31 + aRandom.w * 7.17), 5.0);
-    float starSize = (1.7 + magnitude * 6.5) * (1.25 - distance * 0.025) * uPixelRatio;
-    gl_PointSize = clamp(mix(photoSize, starSize, skyWeight), 1.0, 30.0);
+    float starSize = (1.7 + magnitude * 6.5) * (1.25 - distance * 0.025) * uPixelRatio * distance / max(0.2, -skyPosition.z);
+    gl_PointSize = clamp(mix(photoSize, starSize, skyWeight), 1.0, 64.0);
     float twinkle = 0.82 + sin(uTime * (0.7 + aRandom.z) + aRandom.w * 6.2831853) * 0.18 * uMotion;
     vec3 starlight = mix(vec3(0.62, 0.77, 1.0), vec3(1.0, 0.84, 0.64), aRandom.y) * (0.65 + magnitude * 1.8) * twinkle;
     vColor = mix(mix(aFromColor, color, morph), starlight, skyWeight);
@@ -238,7 +239,7 @@ export class ParticleField {
     });
 
     this.scene = new Scene();
-    this.camera = new PerspectiveCamera(42, 1, 0.1, 80);
+    this.camera = new PerspectiveCamera(42, 1, 0.002, 80);
     this.camera.position.set(0, 0, 7);
     this.orbit = new OrbitView();
     this.orbitDragging = false;
@@ -270,7 +271,6 @@ export class ParticleField {
     this.depthMap = null;
     this.sourceImage = null;
     this.effects = { volume: true, relief: false, wave: false, depth: 0.55, intensity: 0.65 };
-    this.zoom = 1;
     this.aspect = 1.5;
     this.gridWidth = 400;
     this.gridHeight = 267;
@@ -334,7 +334,7 @@ export class ParticleField {
 
   setImage(image, budget, { morph = false } = {}) {
     const previous = morph && this.points?.geometry;
-    const oldScale = this.baseScale * this.zoom;
+    const oldScale = this.baseScale;
     const oldSize = this.uniforms.uSize.value;
     let departing;
     if (previous) {
@@ -426,7 +426,7 @@ export class ParticleField {
     // resize below establishes the scale of the arriving photograph.
     this.resize();
     const from = departing
-      ? remapCloud(departing, opacities.length, oldScale / (this.baseScale * this.zoom))
+      ? remapCloud(departing, opacities.length, oldScale / this.baseScale)
       : { position: positions, color: colors, opacity: opacities };
     geometry.setAttribute("aFromPosition", new Float32BufferAttribute(from.position, 3));
     geometry.setAttribute("aFromColor", new Float32BufferAttribute(from.color, 3));
@@ -490,28 +490,28 @@ export class ParticleField {
     this.uniforms.uViewport.value.set(visibleHeight * width / height, visibleHeight);
     const desktop = width > 900;
     const sidebar = desktop ? (width > 1100 ? 330 : 290) : 0;
-    const landscape = !desktop && height < 520;
     const availableWidth = width - sidebar - (desktop ? 70 : 34);
-    const header = !desktop && document.querySelector(".header")?.getBoundingClientRect();
-    const dock = !desktop && document.querySelector(".scene-bottom")?.getBoundingClientRect();
+    const header = document.querySelector(".header")?.getBoundingClientRect();
+    const status = desktop && document.querySelector(".scene-status")?.getBoundingClientRect();
+    const dock = document.querySelector(".scene-bottom")?.getBoundingClientRect();
     const sceneTop = this.container.getBoundingClientRect().top;
-    const imageTop = !desktop ? Math.max(68, (header?.bottom || 68) - sceneTop) + 12 : 0;
-    const imageBottom = !desktop ? (dock?.top ? dock.top - sceneTop : height - 130) - 12 : 0;
-    const availableHeight = desktop ? height - 465 : imageBottom - imageTop;
+    const imageTop = Math.max(desktop ? 110 : 68, (header?.bottom || 68) - sceneTop, (status?.bottom || 0) - sceneTop) + (desktop ? 18 : 12);
+    const imageBottom = (dock?.top ? dock.top - sceneTop : height - 130) - (desktop ? 18 : 12);
+    const availableHeight = imageBottom - imageTop;
     const imageWidth = Math.min(
       availableWidth,
       Math.max(60, availableHeight) * this.aspect,
     );
     const worldHeight = (imageWidth / this.aspect) * unit;
     this.baseScale = worldHeight / 2;
-    this.group.scale.setScalar(this.baseScale * this.zoom);
+    this.group.scale.setScalar(this.baseScale);
     this.group.position.set(
       sidebar * 0.5 * unit,
-      (desktop ? 63 : height / 2 - (imageTop + imageBottom) / 2) * unit,
+      (height / 2 - (imageTop + imageBottom) / 2) * unit,
       0,
     );
     this.group.updateMatrixWorld(true);
-    this.uniforms.uWorldScale.value = this.baseScale * this.zoom;
+    this.uniforms.uWorldScale.value = this.baseScale;
     this.uniforms.uCenter.value.set(
       this.group.position.x,
       this.group.position.y,
@@ -519,17 +519,24 @@ export class ParticleField {
     this.pickDirty = true;
     // Slightly overlapping discs keep the completed image readable.
     this.uniforms.uSize.value =
-      Math.max(1.0, (imageWidth / this.gridWidth) * 1.65) * this.zoom;
+      Math.max(1.0, (imageWidth / this.gridWidth) * 1.65);
     this.brushRadius = MathUtils.clamp(
-      100 / Math.max(1, (imageWidth / this.aspect) * this.zoom),
+      100 / Math.max(1, imageWidth / this.aspect),
       0.12,
       0.42,
     );
   }
 
   setZoom(zoom) {
-    this.zoom = MathUtils.clamp(zoom, 0.6, 1.7);
-    this.resize();
+    if (zoom > 0 && Number.isFinite(zoom)) this.orbit.setZoomLevel(Math.log(zoom));
+  }
+  get zoomLevel() { return this.orbit.targetZoomLevel; }
+  setZoomLevel(level) { this.orbit.setZoomLevel(level); }
+  zoomBy(amount) { this.orbit.zoomBy(amount); }
+  panBy(dx, dy) {
+    const units = this.uniforms.uViewport.value.y / this.height * Math.exp(-this.orbit.targetZoomLevel);
+    this.orbit.panBy(dx, dy, units);
+    this.clearPointer();
   }
 
   setPointer(clientX, clientY) {
@@ -588,10 +595,9 @@ export class ParticleField {
     this.canvas.classList.toggle("orbiting", this.orbitDragging);
     this.clearPointer();
   }
-  orbitBy(dx, dy) { this.resettingZoom = false; this.orbit.drag(dx, dy); }
+  orbitBy(dx, dy) { this.orbit.drag(dx, dy); }
   resetCamera() {
     this.orbit.home();
-    this.resettingZoom = true;
     this.clearPointer();
   }
 
@@ -690,11 +696,6 @@ export class ParticleField {
     this.view.y = MathUtils.damp(this.view.y, viewY, 4, delta);
     this.uniforms.uSkyPointer.value.copy(this.view);
     this.group.rotation.set(0, 0, 0);
-    if (this.resettingZoom) {
-      const next = MathUtils.damp(this.zoom, 1, 9, delta);
-      this.setZoom(Math.abs(next - 1) < 0.0001 ? 1 : next);
-      if (this.zoom === 1) this.resettingZoom = false;
-    }
     this.orbit.update(this.camera, this.group.position, delta);
     this.interactionTime += delta;
     this.uniforms.uInteractionTime.value = this.interactionTime;
@@ -715,8 +716,8 @@ export class ParticleField {
       const dx = this.pointer.x - start.x, dy = this.pointer.y - start.y;
       const scale = this.uniforms.uWorldScale.value;
       updateFlowVelocity(this.brushVelocity,
-        dx * this.uniforms.uViewport.value.x / (2 * scale),
-        dy * this.uniforms.uViewport.value.y / (2 * scale), delta);
+        dx * this.uniforms.uViewport.value.x / (2 * scale) * Math.exp(-this.orbit.zoomLevel),
+        dy * this.uniforms.uViewport.value.y / (2 * scale) * Math.exp(-this.orbit.zoomLevel), delta);
       this.flowVelocity.set(this.brushVelocity.x, this.brushVelocity.y, 0).applyQuaternion(this.camera.quaternion);
       // Query the swept footprint once, so fast gestures do not multiply the
       // cost of traversing a dense 3D cloud.

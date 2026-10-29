@@ -1321,6 +1321,7 @@ kbd {
   .touch-modes { display: flex; gap: 2px; }
   .touch-mode {
     width: 44px;
+    padding: 2px;
     min-height: 44px;
     display: flex;
     flex-direction: column;
@@ -1369,4 +1370,44 @@ kbd {
   .scene-bottom { gap: 5px; bottom: max(6px, env(safe-area-inset-bottom)); }
   .scene-effects .effect-button { min-height: 34px; padding: 6px 10px; }
   .interaction-hint { display: none; }
+}
+.scene-dock { display: contents; }
+@media (min-width: 901px) {
+  .scene-bottom { width: calc(100% - 378px); max-width: calc(100% - 378px); }
+  .scene-dock {
+    display: flex;
+    align-items: center;
+    justify-content: safe center;
+    gap: 12px;
+    width: 100%;
+    max-width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #32403977;
+    border-radius: 12px;
+    background: linear-gradient(140deg, #17211deb, #0d1415ed);
+    backdrop-filter: blur(12px);
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .scene-dock .scene-effects { flex-direction: row; gap: 6px; flex: 0 0 auto; }
+  .scene-dock .view-controls,
+  .scene-dock .effect-shortcuts { display: contents; }
+  .scene-dock .effect-button { padding: 8px 10px; white-space: nowrap; }
+  .scene-dock .action-row { flex: 0 0 auto; }
+  .scene-dock .transport { padding: 0; gap: 5px; border: 0; background: none; box-shadow: none; backdrop-filter: none; }
+  .scene-dock .transport-separator { display: none; }
+  .scene-dock .transport-button { min-width: 70px; font-size: 10px; }
+  .interaction-hint { order: -1; margin-bottom: 10px; }
+}
+@media (min-width: 901px) and (max-width: 1150px) {
+  .scene-bottom { width: calc(100% - 338px); max-width: calc(100% - 338px); }
+  .scene-dock { gap: 8px; justify-content: flex-start; }
+  .scene-dock .transport-button { min-width: 34px; width: 34px; }
+  .scene-dock .transport-button span { display: none; }
+  .scene-dock .effect-button { padding: 8px; font-size: 9px; gap: 4px; }
+}
+@media (max-width: 900px) {
+  .scene-effects { order: 1; }
+  .interaction-hint { order: 2; }
+  .action-row { order: 3; }
 }

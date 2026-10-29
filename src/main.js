@@ -206,11 +206,12 @@ function updateUI() {
   const dispersed = state.transition
     ? state.transition.to === 0
     : state.progress < 0.5;
-  $("scatter-label").textContent = dispersed ? "Recomposer" : "Disperser";
-  $("scatter-button").setAttribute("aria-label", dispersed ? "Recomposer l’image" : "Disperser l’image");
+  $("scatter-label").textContent = dispersed ? "Recomposer" : "Constellation";
+  $("scatter-button").setAttribute("aria-label", dispersed ? "Recomposer l’image" : "Passer en constellation");
+  $("scatter-button").title = dispersed ? "Recomposer l’image" : "Constellation";
   $("scatter-icon").setAttribute(
     "href",
-    dispersed ? "#i-gather" : "#i-scatter",
+    dispersed ? "#i-gather" : "#i-constellation",
   );
   $("pause-icon").setAttribute("href", state.paused ? "#i-play" : "#i-pause");
   $("pause-button").setAttribute(
@@ -247,8 +248,8 @@ function updateUI() {
       : "L’image a trouvé sa forme";
     phase = "formed";
   } else if (!state.transition) {
-    label = "Un ciel de particules";
-    phase = "scattered";
+    label = "Constellation";
+    phase = "constellation";
   }
   if ($("status-label").textContent !== label)
     $("status-label").textContent = label;
@@ -514,7 +515,7 @@ function setupUI() {
       field?.setOrbitDragging(false);
       if (touchDevice) $("interaction-hint").textContent = mode === "rotate"
         ? "Glissez pour tourner · Pincez pour zoomer"
-        : "Glissez pour souffler · Pincez pour zoomer";
+        : "Glissez pour disperser · Pincez pour zoomer";
     });
   }
   $("volume-button").addEventListener("click", () => {
@@ -698,36 +699,37 @@ function setupPointer() {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   };
   canvas.addEventListener("pointerdown", (event) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.pointerType === "mouse" && event.button !== 0 && event.button !== 2) return;
     tapStart = pointers.size ? null : { x: event.clientX, y: event.clientY, time: performance.now() };
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.setPointerCapture(event.pointerId);
     if (pointers.size >= 2) {
       tapStart = null; mouseDrag = null;
-      pinchDistance = distance(); pinchZoom = field.zoom; centroid = centre();
+      pinchDistance = distance(); pinchZoom = field.zoomLevel; centroid = centre();
       field.setOrbitDragging(true);
     } else if (event.pointerType === "mouse" || state.touchMode === "rotate") {
-      mouseDrag = { x: event.clientX, y: event.clientY, moved: false };
+      mouseDrag = { x: event.clientX, y: event.clientY, moved: false, pan: event.button === 2 || event.shiftKey };
       field.setOrbitDragging(true);
     } else field.setPointer(event.clientX, event.clientY);
   });
   canvas.addEventListener("pointermove", (event) => {
     if (pointers.has(event.pointerId)) pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.size >= 2) {
-      if (pinchDistance > 0) field.setZoom(pinchZoom * distance() / pinchDistance);
+      if (pinchDistance > 0 && distance() > 0) field.setZoomLevel(pinchZoom + Math.log(distance() / pinchDistance));
       const next = centre();
-      if (centroid) field.orbitBy(next.x - centroid.x, next.y - centroid.y);
+      if (centroid) field.panBy(next.x - centroid.x, next.y - centroid.y);
       centroid = next;
     } else if (mouseDrag && pointers.has(event.pointerId)) {
       if (mouseDrag.moved || Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) > 5) {
         mouseDrag.moved = true;
-        field.orbitBy(event.clientX - mouseDrag.x, event.clientY - mouseDrag.y);
+        if (mouseDrag.pan) field.panBy(event.clientX - mouseDrag.x, event.clientY - mouseDrag.y);
+        else field.orbitBy(event.clientX - mouseDrag.x, event.clientY - mouseDrag.y);
       }
       mouseDrag.x = event.clientX; mouseDrag.y = event.clientY;
     } else if (event.pointerType === "mouse" || pointers.size === 1) field.setPointer(event.clientX, event.clientY);
   });
   const release = (event) => {
-    const tapped = event.type === "pointerup" && pointers.size === 1 && tapStart && !mouseDrag?.moved &&
+    const tapped = event.type === "pointerup" && event.button !== 2 && pointers.size === 1 && tapStart && !mouseDrag?.moved &&
       performance.now() - tapStart.time < 500 && Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) < 7;
     pointers.delete(event.pointerId);
     pinchDistance = 0; centroid = null; mouseDrag = null; tapStart = null;
@@ -743,10 +745,12 @@ function setupPointer() {
   });
   canvas.addEventListener("pointerleave", () => { if (!pointers.size) field.clearPointer(); });
   canvas.addEventListener("wheel", (event) => {
-    event.preventDefault(); field.resettingZoom = false;
-    field.setZoom(field.zoom * Math.exp(-event.deltaY * 0.001));
+    event.preventDefault();
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1;
+    field.zoomBy(-event.deltaY * unit * 0.001);
     field.setPointer(event.clientX, event.clientY);
   }, { passive: false });
+  canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   window.addEventListener("blur", () => {
     pointers.clear(); mouseDrag = null; tapStart = null; centroid = null;
     field.setOrbitDragging(false);
