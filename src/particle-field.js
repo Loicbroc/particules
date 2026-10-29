@@ -21,6 +21,8 @@ import {
 } from "three";
 import { FlightBrush, updateFlowVelocity } from "./flight-brush.js";
 import { remapCloud } from "./photo-morph.js";
+import { OrbitView } from "./orbit-view.js";
+import { ParticlePicker } from "./particle-picker.js";
 import {
   explosionEnvelope,
   sampleDepth,
@@ -32,6 +34,7 @@ export const vertexShader = /* glsl */ `
   attribute vec4 aRandom;
   attribute float aOpacity;
   attribute vec4 aFlight;
+  attribute float aFlightZ;
   attribute float aDepth;
   attribute vec3 aFromPosition;
   attribute vec3 aFromColor;
@@ -44,6 +47,7 @@ export const vertexShader = /* glsl */ `
   uniform float uInteractionTime;
   uniform float uMotion;
   uniform float uDepth;
+  uniform float uVolume;
   uniform float uWave;
   uniform float uBurst;
   uniform float uWorldScale;
@@ -70,7 +74,7 @@ export const vertexShader = /* glsl */ `
     float p = smoothstep(aRandom.w * 0.28, 1.0, formation);
     float remaining = 1.0 - p;
     vec3 target = position;
-    float depth = (aDepth - 0.5) * uDepth;
+    float depth = clamp((aDepth - 0.5) * uDepth + (aRandom.z - 0.5) * uVolume, -2.5 / uWorldScale, 2.5 / uWorldScale);
     // Preserve the original photograph when viewed head-on, then reveal its
     // depth through a small orbit. Wave displacement remains uncompensated.
     target.xy = position.xy * (1.0 - depth * uWorldScale / 7.0) - uCenter * depth / 7.0;
@@ -78,7 +82,6 @@ export const vertexShader = /* glsl */ `
     float wavePhase = position.x * 3.2 + position.y * 1.1 - uTime * 1.65;
     target.z += sin(wavePhase) * uWave;
     target.y += cos(wavePhase) * uWave * 0.065;
-    target.z += sin(uTime * 0.55 + position.x * 2.0 + position.y) * 0.012 * uMotion;
     vec3 pos = target;
     float morph = smoothstep(0.0, 1.0, uMorph);
     float crossing = sin(morph * 3.14159265);
@@ -97,22 +100,22 @@ export const vertexShader = /* glsl */ `
       // Integrate a decaying velocity analytically: the mouse lends its actual
       // direction and momentum, which continue after it has left the image.
       float phase = position.x * 2.1 + position.y * 1.3 + aRandom.z * 1.6;
-      vec2 velocity = aFlight.zw * 0.46 + vec2(cos(phase), sin(phase)) * 0.09;
+      vec3 velocity = vec3(aFlight.zw, aFlightZ) * 0.46 + vec3(cos(phase), sin(phase), 0.0) * 0.09;
       float drag = 0.72 + aRandom.y * 0.28;
       float travel = (1.0 - exp(-age * drag)) / drag;
       float floatIn = 1.0 - exp(-age * 1.3);
       float returnPhase = clamp((age - 1.25) / (duration - 1.25), 0.0, 1.0);
       float returnToImage = 1.0 - returnPhase * returnPhase * returnPhase * (returnPhase * (returnPhase * 6.0 - 15.0) + 10.0);
-      vec3 flight = vec3(velocity * travel, 0.0);
+      vec3 flight = velocity * travel;
       flight.xy += vec2(sin(phase + age * 1.05), cos(phase + age * 0.85)) * 0.16 * floatIn;
       flight.y += (0.18 + aRandom.w * 0.18) * floatIn * floatIn;
       flight.z += ((aRandom.y - 0.4) * 0.5 + sin(phase + age * 0.8) * 0.18) * floatIn;
       flight *= aFlight.y * returnToImage * smoothstep(0.55, 0.95, p);
       pos += flight;
       airborne = clamp(length(flight), 0.0, 1.0);
-      vec2 screenVelocity = (modelViewMatrix * vec4(velocity, 0.0, 0.0)).xy;
+      vec2 screenVelocity = (modelViewMatrix * vec4(velocity, 0.0)).xy;
       flowDirection = normalize(screenVelocity + vec2(0.00001, 0.0));
-      flightTrail = min(0.8, length(aFlight.zw) * 0.12) * floatIn * returnToImage * aFlight.y;
+      flightTrail = min(0.8, length(vec3(aFlight.zw, aFlightZ)) * 0.12) * floatIn * returnToImage * aFlight.y;
     }
     if (uBurst > 0.0) {
       float theta = aRandom.x * 6.2831853;
@@ -151,7 +154,8 @@ export const vertexShader = /* glsl */ `
     gl_Position = projectionMatrix * mvPosition;
     float depthFootprint = mix(1.0, (7.0 - depth * uWorldScale) / 7.0, p);
     float streak = max(wind, flightTrail);
-    float photoSize = mix(uFromSize, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + streak * 1.6);
+    float fromFootprint = (7.0 - aFromPosition.z * uWorldScale) / 7.0;
+    float photoSize = mix(uFromSize * fromFootprint, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + streak * 1.6);
     float starSeed = fract(aRandom.w * 19.19 + aRandom.z * 73.13);
     float magnitude = pow(fract(aRandom.x * 31.31 + aRandom.w * 7.17), 5.0);
     float starSize = (1.7 + magnitude * 6.5) * (1.25 - distance * 0.025) * uPixelRatio;
@@ -236,6 +240,13 @@ export class ParticleField {
     this.scene = new Scene();
     this.camera = new PerspectiveCamera(42, 1, 0.1, 80);
     this.camera.position.set(0, 0, 7);
+    this.orbit = new OrbitView();
+    this.orbitDragging = false;
+    this.pickMatrix = new Matrix4();
+    this.pickDirty = true;
+    this.pickTime = -100;
+    this.flowVelocity = new Vector3();
+    this.sampleNdc = new Vector2();
     this.group = new Group();
     this.scene.add(this.group);
     this.raycaster = new Raycaster();
@@ -258,7 +269,7 @@ export class ParticleField {
     this.windStart = -100;
     this.depthMap = null;
     this.sourceImage = null;
-    this.effects = { relief: false, wave: false, depth: 0.55, intensity: 0.65 };
+    this.effects = { volume: true, relief: false, wave: false, depth: 0.55, intensity: 0.65 };
     this.zoom = 1;
     this.aspect = 1.5;
     this.gridWidth = 400;
@@ -272,6 +283,7 @@ export class ParticleField {
       uInteractionTime: { value: 0 },
       uMotion: { value: reducedMotion ? 0 : 1 },
       uDepth: { value: 0 },
+      uVolume: { value: 1.65 },
       uWave: { value: 0 },
       uBurst: { value: 0 },
       uWorldScale: { value: 1 },
@@ -328,9 +340,10 @@ export class ParticleField {
     if (previous) {
       const position = previous.getAttribute("position").array.slice();
       const depths = previous.getAttribute("aDepth").array;
+      const randoms = previous.getAttribute("aRandom").array;
       for (let i = 0; i < depths.length; i++) {
         const x = position[i * 3], y = position[i * 3 + 1];
-        const depth = (depths[i] - 0.5) * this.uniforms.uDepth.value;
+        const depth = MathUtils.clamp((depths[i] - 0.5) * this.uniforms.uDepth.value + (randoms[i * 4 + 2] - 0.5) * this.uniforms.uVolume.value, -2.5 / oldScale, 2.5 / oldScale);
         position[i * 3] = x * (1 - depth * oldScale / 7) - this.group.position.x * depth / 7;
         position[i * 3 + 1] = y * (1 - depth * oldScale / 7) - this.group.position.y * depth / 7;
         position[i * 3 + 2] = depth + waveHeight(x, y, this.currentTime, this.uniforms.uWave.value);
@@ -443,6 +456,9 @@ export class ParticleField {
       4,
     ).setUsage(DynamicDrawUsage);
     geometry.setAttribute("aFlight", this.flightAttribute);
+    this.flightZAttribute = new BufferAttribute(this.flightBrush.zData, 1).setUsage(DynamicDrawUsage);
+    geometry.setAttribute("aFlightZ", this.flightZAttribute);
+    this.pickDirty = true;
     this.lastBrush = null;
     if (this.points) {
       this.group.remove(this.points);
@@ -476,7 +492,7 @@ export class ParticleField {
     const sidebar = desktop ? (width > 1100 ? 330 : 290) : 0;
     const landscape = !desktop && height < 520;
     const availableWidth = width - sidebar - (desktop ? 70 : 34);
-    const availableHeight = height - (landscape ? 200 : desktop ? 385 : 405);
+    const availableHeight = height - (landscape ? 244 : desktop ? 465 : 485);
     const imageWidth = Math.min(
       availableWidth,
       Math.max(60, availableHeight) * this.aspect,
@@ -486,7 +502,7 @@ export class ParticleField {
     this.group.scale.setScalar(this.baseScale * this.zoom);
     this.group.position.set(
       sidebar * 0.5 * unit,
-      (landscape ? 25 : desktop ? 43 : 72) * unit,
+      (landscape ? 47 : desktop ? 63 : 92) * unit,
       0,
     );
     this.group.updateMatrixWorld(true);
@@ -495,6 +511,7 @@ export class ParticleField {
       this.group.position.x,
       this.group.position.y,
     );
+    this.pickDirty = true;
     // Slightly overlapping discs keep the completed image readable.
     this.uniforms.uSize.value =
       Math.max(1.0, (imageWidth / this.gridWidth) * 1.65) * this.zoom;
@@ -532,43 +549,17 @@ export class ParticleField {
     );
     const wasActive = this.pointerActive;
     this.pointerActive = 1;
-    this.projectPointer();
-    if (!wasActive) this.pointer.copy(this.pointerTarget);
+    if (!wasActive) this.pointer.copy(this.ndc);
   }
 
-  projectPointer() {
+  projectPointer(ndc = this.ndc) {
     this.camera.updateMatrixWorld();
     this.group.updateMatrixWorld(true);
-    this.raycaster.setFromCamera(this.ndc, this.camera);
-    this.localRay
-      .copy(this.raycaster.ray)
+    this.raycaster.setFromCamera(ndc, this.camera);
+    this.localRay.copy(this.raycaster.ray)
       .applyMatrix4(this.inverseMatrix.copy(this.group.matrixWorld).invert());
-    const ray = this.localRay;
-    if (Math.abs(ray.direction.z) < 0.01) return;
-    let z = 0,
-      depth = 0,
-      x = 0,
-      y = 0;
-    for (let i = 0; i < 4; i++) {
-      const t = (z - ray.origin.z) / ray.direction.z;
-      const compensation = 1 - (depth * this.uniforms.uWorldScale.value) / 7;
-      x =
-        (ray.origin.x +
-          ray.direction.x * t +
-          (this.group.position.x * depth) / 7) /
-        compensation;
-      y =
-        (ray.origin.y +
-          ray.direction.y * t +
-          (this.group.position.y * depth) / 7) /
-        compensation;
-      depth =
-        (sampleDepth(this.depthMap, x / (this.aspect * 2) + 0.5, 0.5 - y / 2) -
-          0.5) *
-        this.uniforms.uDepth.value;
-      z = depth + waveHeight(x, y, this.currentTime, this.uniforms.uWave.value);
-    }
-    this.pointerTarget.set(x, y);
+    this.pickMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+      .multiply(this.group.matrixWorld);
   }
 
   setDepthMap(map) {
@@ -583,6 +574,42 @@ export class ParticleField {
       );
     }
     this.depthAttribute.needsUpdate = true;
+    this.pickDirty = true;
+  }
+
+  setVolume(enabled) { this.effects.volume = Boolean(enabled); }
+  setOrbitDragging(active) {
+    this.orbitDragging = Boolean(active);
+    this.canvas.classList.toggle("orbiting", this.orbitDragging);
+    this.clearPointer();
+  }
+  orbitBy(dx, dy) { this.resettingZoom = false; this.orbit.drag(dx, dy); }
+  resetCamera() {
+    this.orbit.home();
+    this.resettingZoom = true;
+    this.clearPointer();
+  }
+
+  rebuildPicker() {
+    const geometry = this.points.geometry;
+    const source = geometry.getAttribute("position").array;
+    const depths = geometry.getAttribute("aDepth").array;
+    const seeds = geometry.getAttribute("aRandom").array;
+    const positions = new Float32Array(source.length);
+    const scale = this.uniforms.uWorldScale.value;
+    const amount = this.uniforms.uDepth.value, volume = this.uniforms.uVolume.value;
+    const wave = this.uniforms.uWave.value;
+    for (let i = 0; i < depths.length; i++) {
+      const x = source[i * 3], y = source[i * 3 + 1];
+      const depth = MathUtils.clamp((depths[i] - 0.5) * amount + (seeds[i * 4 + 2] - 0.5) * volume, -2.5 / scale, 2.5 / scale);
+      positions[i * 3] = x * (1 - depth * scale / 7) - this.group.position.x * depth / 7;
+      positions[i * 3 + 1] = y * (1 - depth * scale / 7) - this.group.position.y * depth / 7 + Math.cos(x * 3.2 + y * 1.1 - this.currentTime * 1.65) * wave * 0.065;
+      positions[i * 3 + 2] = depth + waveHeight(x, y, this.currentTime, wave);
+    }
+    if (this.picker) this.picker.rebuild(positions);
+    else this.picker = new ParticlePicker(positions);
+    this.pickDepth = amount; this.pickVolume = volume; this.pickWave = wave;
+    this.pickTime = this.interactionTime; this.pickDirty = false;
   }
 
   setRelief(enabled) {
@@ -638,6 +665,9 @@ export class ParticleField {
       5,
       delta,
     );
+    this.uniforms.uVolume.value = MathUtils.damp(
+      this.uniforms.uVolume.value, this.effects.volume ? this.effects.depth * 3 : 0, 5, delta,
+    );
     this.uniforms.uWave.value = MathUtils.damp(
       this.uniforms.uWave.value,
       this.effects.wave ? 0.13 + this.effects.intensity * 0.4 : 0,
@@ -654,52 +684,55 @@ export class ParticleField {
     this.view.x = MathUtils.damp(this.view.x, viewX, 4, delta);
     this.view.y = MathUtils.damp(this.view.y, viewY, 4, delta);
     this.uniforms.uSkyPointer.value.copy(this.view);
-    this.viewAmount = MathUtils.damp(this.viewAmount, this.effects.relief ? 1 : this.effects.wave ? 0.3 : 0, 5, delta);
-    const viewAmount = this.viewAmount;
-    this.group.rotation.y = this.view.x * 0.22 * viewAmount;
-    this.group.rotation.x = this.view.y * 0.13 * viewAmount;
+    this.group.rotation.set(0, 0, 0);
+    if (this.resettingZoom) {
+      const next = MathUtils.damp(this.zoom, 1, 9, delta);
+      this.setZoom(Math.abs(next - 1) < 0.0001 ? 1 : next);
+      if (this.zoom === 1) this.resettingZoom = false;
+    }
+    this.orbit.update(this.camera, this.group.position, delta);
     this.interactionTime += delta;
     this.uniforms.uInteractionTime.value = this.interactionTime;
-    if (this.pointerActive) this.projectPointer();
-    this.pointer.lerp(this.pointerTarget, 1 - Math.exp(-delta * 20));
+    if (this.pointerActive) this.pointer.lerp(this.ndc, 1 - Math.exp(-delta * 20));
     if (
-      this.pointerActive &&
-      this.flightBrush &&
-      !this.exploding &&
-      !this.windy &&
-      this.uniforms.uMorph.value >= 1 &&
-      this.uniforms.uProgress.value > 0.75
+      this.pointerActive && !this.orbitDragging && this.flightBrush &&
+      !this.exploding && !this.windy && this.uniforms.uMorph.value >= 1 &&
+      this.uniforms.uProgress.value > 0.999
     ) {
+      const elapsed = this.interactionTime - this.pickTime;
+      if (this.pickDirty || !this.picker || elapsed > 0.07 && (
+        Math.abs(this.pickDepth - this.uniforms.uDepth.value) > 0.003 ||
+        Math.abs(this.pickVolume - this.uniforms.uVolume.value) > 0.003 ||
+        Math.abs(this.pickWave - this.uniforms.uWave.value) > 0.003 ||
+        this.uniforms.uWave.value > 0.001
+      )) this.rebuildPicker();
       const start = this.lastBrush || this.pointer;
-      const dx = this.pointer.x - start.x;
-      const dy = this.pointer.y - start.y;
-      updateFlowVelocity(this.brushVelocity, dx, dy, delta);
-      const samples = Math.min(
-        12,
-        Math.max(1, Math.ceil(Math.hypot(dx, dy) / (this.brushRadius * 0.45))),
-      );
-      let first = Infinity;
-      let last = -1;
+      const dx = this.pointer.x - start.x, dy = this.pointer.y - start.y;
+      const scale = this.uniforms.uWorldScale.value;
+      updateFlowVelocity(this.brushVelocity,
+        dx * this.uniforms.uViewport.value.x / (2 * scale),
+        dy * this.uniforms.uViewport.value.y / (2 * scale), delta);
+      this.flowVelocity.set(this.brushVelocity.x, this.brushVelocity.y, 0).applyQuaternion(this.camera.quaternion);
+      const samples = Math.min(12, Math.max(1, Math.ceil(Math.hypot(dx * this.width / 2, dy * this.height / 2) / 24)));
+      let first = Infinity, last = -1;
       for (let sample = 1; sample <= samples; sample++) {
         const t = sample / samples;
-        const changed = this.flightBrush.stamp(
-          start.x + dx * t,
-          start.y + dy * t,
-          this.brushVelocity.x,
-          this.brushVelocity.y,
-          this.interactionTime,
-          delta / samples,
-          this.brushRadius,
-        );
-        if (changed) {
-          first = Math.min(first, changed.start);
-          last = Math.max(last, changed.start + changed.count);
-        }
+        this.sampleNdc.set(start.x + dx * t, start.y + dy * t);
+        this.projectPointer(this.sampleNdc);
+        this.picker.query(this.localRay, this.pickMatrix, this.sampleNdc, this.width, this.height, 54, (index, falloff) => {
+          if (this.flightBrush.kick(index, falloff, this.flowVelocity.x, this.flowVelocity.y, this.flowVelocity.z,
+            this.interactionTime, delta / samples)) {
+            first = Math.min(first, index * 4); last = Math.max(last, index * 4 + 4);
+          }
+        });
       }
       if (last >= 0) {
         this.flightAttribute.clearUpdateRanges();
         this.flightAttribute.addUpdateRange(first, last - first);
         this.flightAttribute.needsUpdate = true;
+        this.flightZAttribute.clearUpdateRanges();
+        this.flightZAttribute.addUpdateRange(first / 4, (last - first) / 4);
+        this.flightZAttribute.needsUpdate = true;
       }
       if (!this.lastBrush) this.lastBrush = new Vector2();
       this.lastBrush.copy(this.pointer);

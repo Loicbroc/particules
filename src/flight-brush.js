@@ -25,7 +25,24 @@ export class FlightBrush {
     this.seeds = seeds;
     this.random = random;
     this.data = new Float32Array(seeds.length);
+    this.zData = new Float32Array(seeds.length / 4);
     for (let i = 0; i < this.data.length; i += 4) this.data[i] = -100;
+  }
+
+  kick(index, falloff, vx, vy, vz, time, delta) {
+    const offset = index * 4, { data, seeds } = this;
+    if (time - data[offset] < flightDuration(seeds[offset + 2]) + 0.2 + seeds[offset + 1] * 0.8) return false;
+    const speed = Math.hypot(vx, vy, vz);
+    const limit = Math.min(1, 9 / Math.max(speed, 0.001));
+    const gust = 1 - Math.exp(-speed * 0.45);
+    const rate = (2.0 + seeds[offset + 1] * 2.8) * (1 + gust * 2.2) * falloff * falloff;
+    if (this.random() >= 1 - Math.exp(-rate * delta)) return false;
+    data[offset] = time;
+    data[offset + 1] = (0.32 + seeds[offset + 3] * 0.75) * Math.sqrt(falloff) * (1 + gust * 0.3);
+    data[offset + 2] = vx * limit;
+    data[offset + 3] = vy * limit;
+    this.zData[index] = vz * limit;
+    return true;
   }
 
   stamp(x, y, vx, vy, time, delta, radius) {

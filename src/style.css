@@ -1127,6 +1127,13 @@ kbd {
   gap: 7px;
   margin-bottom: 18px;
 }
+.view-controls {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin-bottom: 9px;
+}
+#scene canvas.orbiting { cursor: grabbing; }
 .photo-gallery {
   display: flex;
   gap: 7px;

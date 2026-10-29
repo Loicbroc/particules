@@ -24,6 +24,7 @@ const state = {
   frameMean: 16.7,
   relief: false,
   wave: false,
+  volume: true,
   depthBusy: false,
   gallery: [],
   morph: null,
@@ -57,11 +58,15 @@ function setLoading(value, label = "Les couleurs prennent place…") {
 
 function updateEffectUI() {
   const unavailable = state.loading || !state.image || Boolean(state.morph);
+  $("volume-button").disabled = unavailable;
+  $("volume-button").classList.toggle("active", state.volume);
+  $("volume-button").setAttribute("aria-pressed", String(state.volume));
+  $("camera-home").disabled = state.loading || !state.image;
   $("relief-button").disabled = unavailable;
   $("relief-button").setAttribute("aria-pressed", String(state.relief));
   $("relief-button").setAttribute("aria-busy", String(state.depthBusy));
   $("relief-button").classList.toggle("active", state.relief);
-  $("relief-label").textContent = "Relief 3D";
+  $("relief-label").textContent = "Relief IA";
   $("depth-retry").hidden =
     !state.image || state.image.depthKind !== "artistic" || state.depthBusy;
   $("wave-button").disabled = unavailable;
@@ -497,6 +502,13 @@ async function toggleFullscreen() {
 }
 
 function setupUI() {
+  $("volume-button").addEventListener("click", () => {
+    if (!state.image || state.loading || state.morph) return;
+    state.volume = !state.volume;
+    field.setVolume(state.volume);
+    updateUI();
+  });
+  $("camera-home").addEventListener("click", () => field?.resetCamera());
   $("upload-button").addEventListener("click", () => $("file-input").click());
   $("mobile-upload").addEventListener("click", () => $("file-input").click());
   $("file-input").addEventListener("change", (event) => {
@@ -655,74 +667,75 @@ function setupUI() {
   });
   if (touchDevice)
     $("interaction-hint").textContent =
-      "Glissez pour l’envol · Touchez pour l’explosion · Pincez pour zoomer";
+      "1 doigt : envol · 2 doigts : tourner / zoomer";
 }
 
 function setupPointer() {
   const canvas = field.canvas;
   const pointers = new Map();
-  let pinchDistance = 0;
-  let pinchZoom = 1;
-  let tapStart = null;
+  let pinchDistance = 0, pinchZoom = 1, centroid = null, tapStart = null, mouseDrag = null;
   const distance = () => {
     const [a, b] = [...pointers.values()];
     return Math.hypot(a.x - b.x, a.y - b.y);
   };
+  const centre = () => {
+    const [a, b] = [...pointers.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
   canvas.addEventListener("pointerdown", (event) => {
-    if (pointers.size === 0)
-      tapStart = {
-        x: event.clientX,
-        y: event.clientY,
-        time: performance.now(),
-      };
-    else tapStart = null;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    tapStart = pointers.size ? null : { x: event.clientX, y: event.clientY, time: performance.now() };
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.setPointerCapture(event.pointerId);
-    if (pointers.size === 2) {
-      pinchDistance = distance();
-      pinchZoom = field.zoom;
-      field.clearPointer();
+    if (pointers.size >= 2) {
+      tapStart = null; mouseDrag = null;
+      pinchDistance = distance(); pinchZoom = field.zoom; centroid = centre();
+      field.setOrbitDragging(true);
+    } else if (event.pointerType === "mouse") {
+      mouseDrag = { x: event.clientX, y: event.clientY, moved: false };
+      field.setOrbitDragging(true);
     } else field.setPointer(event.clientX, event.clientY);
   });
   canvas.addEventListener("pointermove", (event) => {
-    if (pointers.has(event.pointerId))
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.has(event.pointerId)) pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.size >= 2) {
-      if (pinchDistance > 0)
-        field.setZoom((pinchZoom * distance()) / pinchDistance);
-      field.clearPointer();
-    } else if (event.pointerType === "mouse" || pointers.size === 1)
-      field.setPointer(event.clientX, event.clientY);
+      if (pinchDistance > 0) field.setZoom(pinchZoom * distance() / pinchDistance);
+      const next = centre();
+      if (centroid) field.orbitBy(next.x - centroid.x, next.y - centroid.y);
+      centroid = next;
+    } else if (mouseDrag && pointers.has(event.pointerId)) {
+      if (mouseDrag.moved || Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) > 5) {
+        mouseDrag.moved = true;
+        field.orbitBy(event.clientX - mouseDrag.x, event.clientY - mouseDrag.y);
+      }
+      mouseDrag.x = event.clientX; mouseDrag.y = event.clientY;
+    } else if (event.pointerType === "mouse" || pointers.size === 1) field.setPointer(event.clientX, event.clientY);
   });
   const release = (event) => {
-    const tapped =
-      event.type === "pointerup" &&
-      pointers.size === 1 &&
-      tapStart &&
-      performance.now() - tapStart.time < 500 &&
-      Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) < 7;
+    const tapped = event.type === "pointerup" && pointers.size === 1 && tapStart && !mouseDrag?.moved &&
+      performance.now() - tapStart.time < 500 && Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) < 7;
     pointers.delete(event.pointerId);
-    pinchDistance = 0;
-    field.clearPointer();
-    if (canvas.hasPointerCapture(event.pointerId))
-      canvas.releasePointerCapture(event.pointerId);
+    pinchDistance = 0; centroid = null; mouseDrag = null; tapStart = null;
+    field.setOrbitDragging(false);
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     if (tapped) triggerExplosion();
-    if (!pointers.size) tapStart = null;
+    else if (event.type === "pointerup" && event.pointerType === "mouse") field.setPointer(event.clientX, event.clientY);
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
-  canvas.addEventListener("pointerleave", () => {
-    if (!pointers.size) field.clearPointer();
+  canvas.addEventListener("lostpointercapture", () => {
+    if (!pointers.size) { mouseDrag = null; field.setOrbitDragging(false); }
   });
-  canvas.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      field.setZoom(field.zoom * Math.exp(-event.deltaY * 0.001));
-      field.setPointer(event.clientX, event.clientY);
-    },
-    { passive: false },
-  );
+  canvas.addEventListener("pointerleave", () => { if (!pointers.size) field.clearPointer(); });
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault(); field.resettingZoom = false;
+    field.setZoom(field.zoom * Math.exp(-event.deltaY * 0.001));
+    field.setPointer(event.clientX, event.clientY);
+  }, { passive: false });
+  window.addEventListener("blur", () => {
+    pointers.clear(); mouseDrag = null; tapStart = null; centroid = null;
+    field.setOrbitDragging(false);
+  });
 }
 
 function tick(now) {

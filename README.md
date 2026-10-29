@@ -9,6 +9,7 @@ Application Three.js qui recompose une photo à partir d’un ciel de particules
 - Couleurs et proportions conservées ; transparence des PNG prise en compte.
 - Animation sur le GPU : un champ d’étoiles réparties sur tout l’écran, en profondeur, se rassemble progressivement pour former la photo. Scintillement discret, halos et parallaxe ; nombre d’étoiles visibles adapté à la densité pour conserver un ciel aéré.
 - Envol fluide au survol ou au toucher : la direction et la vitesse du geste entraînent les particules comme un courant d’air. Leur élan s’amortit, de petits remous les font flotter et elles reviennent progressivement à la photo, même après le passage du pointeur.
+- Volume 3D activé par défaut : les points occupent des profondeurs différentes, avec une compensation de perspective pour conserver la photo de face. Cliquez-glissez pour tourner autour, puis survolez pour faire voler les grains depuis n’importe quel angle. Sur mobile : un doigt pour l’envol, deux doigts pour tourner et pincer pour zoomer. Le bouton Vue de face rétablit progressivement la caméra et le zoom d’origine.
 - Relief 2,5D : un relief artistique est créé immédiatement sur l’appareil, puis affiné avec Depth Anything V2 Small si le modèle est disponible. Un échec du téléchargement ou de l’inférence conserve le relief artistique et permet de réessayer l’IA. Le mode artistique utilise une interprétation des couleurs et de la composition, sans prétendre représenter une profondeur réelle.
 - Vague en profondeur, activable et réglable.
 - Galerie locale de 8 photos maximum : import multiple et glisser-déposer, vignettes, précédent/suivant et suppression. La galerie dure le temps de l’onglet.
@@ -22,7 +23,7 @@ Application Three.js qui recompose une photo à partir d’un ciel de particules
 - Interface adaptée aux petits écrans, réglages dans un panneau repliable.
 - Respect de la préférence de réduction des mouvements, suspension quand l’onglet est masqué, signalement des pertes de contexte WebGL.
 
-La photo se lit de face. Les particules évoluent en 3D pendant les mouvements ; l’application ne reconstruit pas un modèle 3D du sujet.
+La photo se lit de face. Le mode Volume 3D répartit les points dans un volume anamorphique ; Relief IA interprète la profondeur du sujet. L’application ne reconstruit pas un modèle 3D complet du sujet.
 
 ## Branches
 
