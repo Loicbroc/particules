@@ -1,0 +1,22 @@
+{
+  "name": "particules",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Application de reconstruction de photos par particules avec Three.js.",
+  "scripts": {
+    "dev": "wrangler dev --assets ./public",
+    "build": "node scripts/build.mjs",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:preview": "npm run build && wrangler preview",
+    "check:deploy": "npm run build && wrangler deploy --dry-run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@11.9.0",
+  "devDependencies": {
+    "wrangler": "4.155.0"
+  }
+}
