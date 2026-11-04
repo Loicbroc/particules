@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node --test",
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && node scripts/build-pwa.js",
     "preview": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
     "deploy:preview": "npm run build && wrangler preview",

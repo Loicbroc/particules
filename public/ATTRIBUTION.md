@@ -1,6 +1,6 @@
 # Photographie de démonstration
 
-`demo-lac.jpg` : « Boathouse on a mountain lake », Lago di Braies, par Luca Bravo.
+`demo-lac.webp` : « Boathouse on a mountain lake », Lago di Braies, par Luca Bravo. Version WebP optimisée depuis la photographie d’origine.
 
 - Source : https://unsplash.com/photos/brown-house-near-body-of-water-zAjdgNXsMeg
 - Licence : https://unsplash.com/license

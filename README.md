@@ -23,6 +23,21 @@ Application Three.js qui recompose une photo à partir d’un ciel de particules
 - Sur PC, les effets et commandes de lecture sont réunis sur une seule ligne.
 - Interface mobile compacte : statut sous le titre, effets sur une bande horizontale, lecture/pause/dispersion en pictogrammes, choix Tourner/Disperser et ajout de photos sur la même rangée. Le cadrage de la photo utilise l’espace réel entre l’en-tête et les commandes ; les réglages restent dans un panneau repliable.
 - Respect de la préférence de réduction des mouvements, suspension quand l’onglet est masqué, signalement des pertes de contexte WebGL.
+- PWA installable sur ordinateur et téléphone : icônes dédiées, ouverture sans barre de navigateur et bouton d’installation lorsque le navigateur le propose. Sur iPhone/iPad : Partager → Sur l’écran d’accueil.
+- Après un premier chargement complet, l’application, la démonstration, les imports locaux et les effets artistiques restent utilisables hors connexion. Le téléchargement initial du modèle IA nécessite Internet. Les photos importées restent limitées à la session et ne sont pas conservées par le service worker.
+- Mises à jour préparées en arrière-plan et proposées dans les réglages. Le rechargement reste volontaire pour ne pas fermer une galerie en cours. Une installation incomplète conserve la version précédente.
+
+## Performances
+
+- Préparation des points directement dans des tableaux typés ; les attributs d’origine sont partagés hors transition entre photos, soit 6,72 Mo de buffers GPU dupliqués évités pour 240 000 points.
+- Index de survol réutilisé. La vague est évaluée uniquement sur les candidats proches du pointeur, sans reconstruire tout le nuage à chaque changement de phase ; les tests comparent le résultat à un calcul exhaustif depuis plusieurs angles.
+- Seuls les blocs de points nouvellement envolés sont transférés au GPU.
+- Détail reste la densité par défaut. La résolution de rendu peut baisser progressivement sous charge puis remonter, sans réduire le nombre de points en Détail.
+- Rendu limité à 60 images/s, et à 30 lorsque la photo est au repos ; arrêt dans un onglet masqué. Les rotations, les effets et les derniers grains en vol gardent la cadence active.
+- Les photos de plus de 1 600 pixels sur leur grand côté sont remplacées par une copie de travail locale réduite, pour limiter la mémoire de la galerie. Le fichier original reste intact ; ses dimensions restent affichées.
+- Photo de démonstration convertie en WebP et préchargée ; écritures DOM limitées aux changements visibles.
+
+`node scripts/benchmark-picker.mjs` mesure séparément la reconstruction et les requêtes de l’index sur 240 000 points. Ce microbenchmark CPU ne mesure pas les FPS d’un appareil réel.
 
 La photo se lit de face. Le mode Volume 3D répartit les points dans un volume anamorphique ; Relief IA interprète la profondeur du sujet. L’application ne reconstruit pas un modèle 3D complet du sujet.
 
@@ -49,9 +64,12 @@ Vite regroupe le code et Three.js dans des fichiers distincts. L’expérience d
 npm run build        # Produit dist/
 npm run preview      # Vérifie le build avec le runtime local Cloudflare
 npm run check:deploy # Build et simulation de déploiement sans publication
+npm test             # Interactions 3D, transitions, précision du survol et cache PWA
 ```
 
 Raccourcis : Espace = pause/reprise ; R = rejouer ; F = plein écran. Ils sont désactivés pendant la manipulation des champs et boutons.
+
+Le build produit également `dist/sw.js`, avec une version dérivée du contenu des ressources et du service worker. Aucun gros modèle externe n’est inclus dans le cache d’installation. Le service worker est enregistré uniquement sur le build de production, pas sur le serveur Vite de développement. Le cache conserve une génération précédente pour les onglets déjà ouverts.
 
 ## Cloudflare Workers
 

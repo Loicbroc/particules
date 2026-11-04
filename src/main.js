@@ -3,8 +3,14 @@ import { ParticleField } from "./particle-field.js";
 import { DepthEstimator } from "./depth-client.js";
 import { createArtisticDepth } from "./artistic-depth.js";
 import { morphDuration } from "./photo-morph.js";
+import { preparePhoto } from "./photo-source.js";
+import { setupPWA } from "./pwa.js";
 
-const $ = (id) => document.getElementById(id);
+const elements = new Map();
+const $ = (id) => {
+  if (!elements.has(id)) elements.set(id, document.getElementById(id));
+  return elements.get(id);
+};
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const touchDevice = matchMedia("(pointer: coarse)").matches;
 const formatter = new Intl.NumberFormat("fr-FR");
@@ -35,7 +41,10 @@ let field;
 let toastTimer;
 let uiTime = 0;
 let lastFrame = performance.now();
+let frameDeadline = lastFrame;
 let frameId;
+let effectUIKey = "";
+let uiKey = "";
 
 function toast(message) {
   clearTimeout(toastTimer);
@@ -58,6 +67,11 @@ function setLoading(value, label = "Les couleurs prennent place…") {
 }
 
 function updateEffectUI() {
+  const key = [state.loading, Boolean(state.image), Boolean(state.morph), state.volume,
+    state.relief, state.depthBusy, state.image?.depthKind, state.progress >= 0.999,
+    field?.exploding, field?.windy, state.gallery.length].join("|");
+  if (key === effectUIKey) return;
+  effectUIKey = key;
   const unavailable = state.loading || !state.image || Boolean(state.morph);
   $("volume-button").disabled = unavailable;
   $("volume-button").classList.toggle("active", state.volume);
@@ -196,6 +210,12 @@ function updateCount() {
 
 function updateUI() {
   const percent = Math.round(state.progress * 100);
+  updateEffectUI();
+  const morphPercent = state.morph ? Math.round(state.morph.elapsed / state.morph.seconds * 100) : "";
+  const key = [percent, morphPercent, state.transition?.to, state.paused, state.wave,
+    Boolean(state.image), effectUIKey].join("|");
+  if (key === uiKey) return;
+  uiKey = key;
   $("timeline-fill").style.width = `${percent}%`;
   document
     .querySelector(".timeline")
@@ -329,6 +349,7 @@ function renderGallery() {
   $("gallery-controls").hidden = state.gallery.length < 2;
   $("gallery-position").textContent = `${state.gallery.indexOf(state.image) + 1} / ${state.gallery.length}`;
   $("remove-photo").hidden = state.gallery.length < 2;
+  effectUIKey = ""; // Newly created thumbnail buttons also need their busy state.
   updateEffectUI();
 }
 
@@ -358,7 +379,7 @@ function activatePhoto(photo) {
   $("image-name").textContent = photo.name;
   $("image-name").title = photo.name;
   $("image-dimensions").textContent =
-    `${photo.image.naturalWidth} × ${photo.image.naturalHeight}${photo.isDemo ? " · Démonstration" : ""}`;
+    `${photo.width} × ${photo.height}${photo.isDemo ? " · Démonstration" : ""}`;
   $("demo-button").hidden = photo.isDemo;
   $("scene").setAttribute("aria-label", `Photo « ${photo.name} » reconstruite par des particules interactives`);
   updateCount();
@@ -399,15 +420,9 @@ async function loadPhotos(specs) {
   const photos = [];
   try {
     for (const { source, name, isDemo = false } of specs) {
-      const ownedURL = typeof source !== "string";
-      const url = ownedURL ? URL.createObjectURL(source) : source;
       try {
-        const image = new Image();
-        image.src = url;
-        await image.decode();
-        photos.push({ image, url, name, isDemo, ownedURL });
+        photos.push(await preparePhoto(source, name, isDemo));
       } catch {
-        if (ownedURL) URL.revokeObjectURL(url);
         if (token === state.loadToken) toast(`Impossible de lire « ${name} ». Essayez une photo JPEG, PNG ou WebP.`);
       }
       if (token !== state.loadToken) return;
@@ -532,7 +547,7 @@ function setupUI() {
     event.target.value = "";
   });
   $("demo-button").addEventListener("click", () => {
-    void loadPhoto("/demo-lac.jpg", "Lac de Braies", true);
+    void loadPhoto("/demo-lac.webp", "Lac de Braies", true);
   });
   $("replay-button").addEventListener("click", replay);
   $("relief-button").addEventListener("click", () => {
@@ -720,7 +735,7 @@ function setupPointer() {
       if (centroid) field.panBy(next.x - centroid.x, next.y - centroid.y);
       centroid = next;
     } else if (mouseDrag && pointers.has(event.pointerId)) {
-      if (mouseDrag.moved || Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) > 5) {
+      if (mouseDrag.moved || tapStart && Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) > 5) {
         mouseDrag.moved = true;
         if (mouseDrag.pan) field.panBy(event.clientX - mouseDrag.x, event.clientY - mouseDrag.y);
         else field.orbitBy(event.clientX - mouseDrag.x, event.clientY - mouseDrag.y);
@@ -761,6 +776,12 @@ function setupPointer() {
 function tick(now) {
   frameId = requestAnimationFrame(tick);
   const rawDelta = now - lastFrame;
+  // Avoid doubling GPU work on 120/144 Hz displays. Elapsed time is still
+  // measured across skipped callbacks so animation and gestures keep pace.
+  const idle = !state.transition && !state.morph && state.progress >= 0.999 && !field.needsAnimation;
+  const interval = 1000 / (idle ? 30 : 60);
+  if (now < frameDeadline - 0.5) return;
+  frameDeadline = Math.max(frameDeadline + interval, now);
   const delta = Math.min(0.05, Math.max(0, rawDelta / 1000));
   lastFrame = now;
   if (!state.paused && !state.loading && !field.contextLost) {
@@ -794,9 +815,13 @@ function tick(now) {
     updateUI();
     uiTime = now;
   }
-  if (state.image && !state.loading && !state.morph && !field.contextLost) {
+  if (!idle && state.image && !state.loading && !state.morph && !field.contextLost) {
     state.frames++;
     state.frameMean = state.frameMean * 0.97 + Math.min(rawDelta, 100) * 0.03;
+    if (state.frames > 180 && field.adaptResolution(state.frameMean)) {
+      state.frameMean = 16.7;
+      state.frames = 0;
+    }
     if (
       state.frames > 180 &&
       state.quality === "auto" &&
@@ -816,6 +841,7 @@ function tick(now) {
 
 async function start() {
   setupUI();
+  setupPWA({ toast });
   try {
     field = new ParticleField($("scene"), {
       reducedMotion,
@@ -825,6 +851,7 @@ async function start() {
       onContextRestored: () => {
         $("renderer-error").hidden = true;
         lastFrame = performance.now();
+        frameDeadline = lastFrame;
         field.resize();
       },
     });
@@ -837,12 +864,13 @@ async function start() {
       field.clearPointer();
       if (!document.hidden) {
         lastFrame = performance.now();
+        frameDeadline = lastFrame;
         frameId = requestAnimationFrame(tick);
       }
     });
     lastFrame = performance.now();
     frameId = requestAnimationFrame(tick);
-    await loadPhoto("/demo-lac.jpg", "Lac de Braies", true);
+    await loadPhoto("/demo-lac.webp", "Lac de Braies", true);
   } catch (error) {
     console.error("Initialisation de la scène impossible :", error);
     setLoading(false);

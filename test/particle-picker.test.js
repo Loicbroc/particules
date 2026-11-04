@@ -92,3 +92,31 @@ test("one swept hover query covers a fast gesture without gaps or excess grains"
   assert.ok(actual.size > 0);
   assert.deepEqual(actual, expected);
 });
+
+test("a static spatial grid picks the animated wave accurately from every angle", () => {
+  const { field, orbit, positions: source, count } = fixture();
+  const positions = field.picker.positions;
+  for (const time of [0, 1.25, 4]) {
+    for (const yaw of [0, 0.8, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      orbit.yaw = orbit.targetYaw = yaw;
+      orbit.pitch = orbit.targetPitch = 0.3;
+      orbit.update(field.camera, field.group.position, 0);
+      const deformed = (i) => {
+        const phase = source[i * 3] * 3.2 + source[i * 3 + 1] * 1.1 - time * 1.65;
+        return new Vector3(positions[i * 3], positions[i * 3 + 1] + Math.cos(phase) * 0.4 * 0.065,
+          positions[i * 3 + 2] + Math.sin(phase) * 0.4).applyMatrix4(field.group.matrixWorld).project(field.camera);
+      };
+      const point = deformed(3045);
+      field.ndc.set(point.x, point.y);
+      ParticleField.prototype.projectPointer.call(field);
+      const actual = new Set(), expected = new Set();
+      field.picker.query(field.localRay, field.pickMatrix, field.ndc, 1200, 800, 24,
+        (i) => actual.add(i), null, { wave: 0.4, time, source });
+      for (let i = 0; i < count; i++) {
+        const p = deformed(i);
+        if (Math.hypot((p.x - point.x) * 600, (p.y - point.y) * 400) < 24) expected.add(i);
+      }
+      assert.deepEqual(actual, expected, `wave hover at angle ${yaw}, time ${time}`);
+    }
+  }
+});

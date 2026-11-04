@@ -7,11 +7,18 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#070a0f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Particules" />
     <meta
       name="description"
       content="Transformez votre photo en un nuage de particules lumineuses. Une expérience Three.js interactive, directement dans votre navigateur."
     />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="/demo-lac.webp" fetchpriority="high" />
     <title>Particules — La photographie en mouvement</title>
   </head>
   <body>
@@ -22,6 +29,9 @@
     >
       <symbol id="i-plus" viewBox="0 0 24 24">
         <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="i-install" viewBox="0 0 24 24">
+        <path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" />
       </symbol>
       <symbol id="i-replay" viewBox="0 0 24 24">
         <path d="M3 10a9 9 0 1 1 2 8M3 4v6h6" />
@@ -106,6 +116,9 @@
         >
         <span class="header-caption">LA PHOTOGRAPHIE EN MOUVEMENT</span>
         <div class="header-actions">
+          <button class="icon-button" id="install-button" hidden aria-label="Installer Particules" title="Installer l’application">
+            <svg><use href="#i-install" /></svg>
+          </button>
           <button
             class="icon-button mobile-settings"
             id="settings-button"
@@ -167,7 +180,7 @@
             <img
               id="thumbnail"
               alt="Aperçu de la photo utilisée"
-              src="/demo-lac.jpg"
+              src="/demo-lac.webp"
             />
             <div>
               <span id="image-name" title="Lac de Braies">Lac de Braies</span
@@ -271,6 +284,10 @@
         <p class="privacy">
           <svg><use href="#i-lock" /></svg>Votre photo reste sur cet appareil.
         </p>
+        <div class="pwa-settings">
+          <p id="pwa-status" role="status">Installation et mode hors connexion disponibles après chargement.</p>
+          <button id="update-button" class="text-button" hidden>Recharger l’application</button>
+        </div>
       </aside>
 
       <div class="scene-status" aria-live="polite">
@@ -459,6 +476,7 @@
         La photo est traitée sur votre appareil. Aucun envoi ni stockage sur un
         serveur.
       </p>
+      <p>Installez <strong>Particules</strong> avec le bouton d’installation ou le menu du navigateur. Sur iPhone/iPad : <strong>Partager → Sur l’écran d’accueil</strong>. Après un premier chargement complet, l’application et les effets locaux fonctionnent hors connexion. Le téléchargement initial du modèle de relief IA nécessite Internet.</p>
       <p class="credit">
         Photo d’exemple :
         <a

@@ -25,6 +25,12 @@ export class OrbitView {
   }
   setZoomLevel(level) { if (Number.isFinite(level)) this.targetZoomLevel = level; }
   zoomBy(amount) { this.setZoomLevel(this.targetZoomLevel + amount); }
+  get settled() {
+    return Math.abs(this.yaw - this.targetYaw) < 0.00001 &&
+      Math.abs(this.pitch - this.targetPitch) < 0.00001 &&
+      Math.abs(this.zoomLevel - this.targetZoomLevel) < 0.00001 &&
+      this.pan.distanceToSquared(this.targetPan) < 1e-10;
+  }
   panBy(dx, dy, unitsPerPixel) {
     this.step.set(-dx * unitsPerPixel, dy * unitsPerPixel, 0).applyQuaternion(this.rotation);
     this.targetPan.add(this.step);

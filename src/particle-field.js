@@ -3,7 +3,6 @@ import {
   BufferGeometry,
   Color,
   DynamicDrawUsage,
-  Float32BufferAttribute,
   Group,
   MathUtils,
   Matrix4,
@@ -225,6 +224,8 @@ export class ParticleField {
     this.renderer.setClearColor("#070a0f", 1);
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
+    this.maxPixelRatio = this.renderer.getPixelRatio();
+    this.resolutionPressure = 0;
     this.canvas = this.renderer.domElement;
     this.canvas.setAttribute("aria-hidden", "true");
     container.append(this.canvas);
@@ -259,6 +260,7 @@ export class ParticleField {
     this.pointerTarget = new Vector2(100, 100);
     this.pointerActive = 0;
     this.interactionTime = 0;
+    this.lastFlightTime = -100;
     this.lastBrush = null;
     this.brushVelocity = new Vector2();
     this.view = new Vector2();
@@ -375,36 +377,28 @@ export class ParticleField {
       throw new Error("Impossible de lire les couleurs de cette photo.");
     ctx.drawImage(image, 0, 0, gridWidth, gridHeight);
     const { data } = ctx.getImageData(0, 0, gridWidth, gridHeight);
-    const positions = [],
-      colors = [],
-      randoms = [],
-      opacities = [];
+    const capacity = gridWidth * gridHeight;
+    const positions = new Float32Array(capacity * 3),
+      colors = new Float32Array(capacity * 3),
+      randoms = new Float32Array(capacity * 4),
+      opacities = new Float32Array(capacity);
+    let count = 0;
     const cellIndices = new Int32Array(gridWidth * gridHeight).fill(-1);
     for (let y = 0; y < gridHeight; y++) {
       for (let x = 0; x < gridWidth; x++) {
         const index = (y * gridWidth + x) * 4;
         if (data[index + 3] < 8) continue;
-        cellIndices[y * gridWidth + x] = opacities.length;
-        positions.push(
-          ((x + 0.5) / gridWidth - 0.5) * aspect * 2,
-          (0.5 - (y + 0.5) / gridHeight) * 2,
-          0,
-        );
-        colors.push(
-          linear[data[index]],
-          linear[data[index + 1]],
-          linear[data[index + 2]],
-        );
-        randoms.push(
-          Math.random(),
-          Math.random(),
-          Math.random(),
-          Math.random(),
-        );
-        opacities.push(data[index + 3] / 255);
+        cellIndices[y * gridWidth + x] = count;
+        positions[count * 3] = ((x + 0.5) / gridWidth - 0.5) * aspect * 2;
+        positions[count * 3 + 1] = (0.5 - (y + 0.5) / gridHeight) * 2;
+        colors[count * 3] = linear[data[index]];
+        colors[count * 3 + 1] = linear[data[index + 1]];
+        colors[count * 3 + 2] = linear[data[index + 2]];
+        for (let a = 0; a < 4; a++) randoms[count * 4 + a] = Math.random();
+        opacities[count++] = data[index + 3] / 255;
       }
     }
-    if (!opacities.length)
+    if (!count)
       throw new Error(
         "Cette image est entièrement transparente. Choisissez une autre photo.",
       );
@@ -419,22 +413,22 @@ export class ParticleField {
       this.windStart = -100;
     }
     const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
-    geometry.setAttribute("aRandom", new Float32BufferAttribute(randoms, 4));
-    geometry.setAttribute("aOpacity", new Float32BufferAttribute(opacities, 1));
+    geometry.setAttribute("position", new BufferAttribute(positions.subarray(0, count * 3), 3));
+    geometry.setAttribute("color", new BufferAttribute(colors.subarray(0, count * 3), 3));
+    geometry.setAttribute("aRandom", new BufferAttribute(randoms.subarray(0, count * 4), 4));
+    geometry.setAttribute("aOpacity", new BufferAttribute(opacities.subarray(0, count), 1));
     // resize below establishes the scale of the arriving photograph.
     this.resize();
     const from = departing
-      ? remapCloud(departing, opacities.length, oldScale / this.baseScale)
-      : { position: positions, color: colors, opacity: opacities };
-    geometry.setAttribute("aFromPosition", new Float32BufferAttribute(from.position, 3));
-    geometry.setAttribute("aFromColor", new Float32BufferAttribute(from.color, 3));
-    geometry.setAttribute("aFromOpacity", new Float32BufferAttribute(from.opacity, 1));
+      ? remapCloud(departing, count, oldScale / this.baseScale)
+      : null;
+    geometry.setAttribute("aFromPosition", from ? new BufferAttribute(from.position, 3) : geometry.getAttribute("position"));
+    geometry.setAttribute("aFromColor", from ? new BufferAttribute(from.color, 3) : geometry.getAttribute("color"));
+    geometry.setAttribute("aFromOpacity", from ? new BufferAttribute(from.opacity, 1) : geometry.getAttribute("aOpacity"));
     this.uniforms.uFromSize.value = departing ? oldSize : this.uniforms.uSize.value;
     this.uniforms.uMorph.value = departing ? 0 : 1;
     this.uniforms.uAspect.value = aspect;
-    const depths = new Float32Array(opacities.length);
+    const depths = new Float32Array(count);
     for (let i = 0; i < depths.length; i++) {
       depths[i] = sampleDepth(
         this.depthMap,
@@ -458,6 +452,7 @@ export class ParticleField {
     geometry.setAttribute("aFlight", this.flightAttribute);
     this.flightZAttribute = new BufferAttribute(this.flightBrush.zData, 1).setUsage(DynamicDrawUsage);
     geometry.setAttribute("aFlightZ", this.flightZAttribute);
+    this.flightBlocks = new Uint8Array(Math.ceil(count / 128));
     this.pickDirty = true;
     this.lastBrush = null;
     if (this.points) {
@@ -468,7 +463,7 @@ export class ParticleField {
     // The shader moves points far outside their source image bounds.
     this.points.frustumCulled = false;
     this.group.add(this.points);
-    this.count = opacities.length;
+    this.count = count;
     this.uniforms.uStarFraction.value = Math.min(1, 3400 / this.count);
     this.container.dataset.particleCount = String(this.count);
     this.resize();
@@ -606,20 +601,20 @@ export class ParticleField {
     const source = geometry.getAttribute("position").array;
     const depths = geometry.getAttribute("aDepth").array;
     const seeds = geometry.getAttribute("aRandom").array;
-    const positions = new Float32Array(source.length);
+    const positions = this.picker?.positions.length === source.length
+      ? this.picker.positions : new Float32Array(source.length);
     const scale = this.uniforms.uWorldScale.value;
     const amount = this.uniforms.uDepth.value, volume = this.uniforms.uVolume.value;
-    const wave = this.uniforms.uWave.value;
     for (let i = 0; i < depths.length; i++) {
       const x = source[i * 3], y = source[i * 3 + 1];
       const depth = MathUtils.clamp((depths[i] - 0.5) * amount + (seeds[i * 4 + 2] - 0.5) * volume, -2.5 / scale, 2.5 / scale);
       positions[i * 3] = x * (1 - depth * scale / 7) - this.group.position.x * depth / 7;
-      positions[i * 3 + 1] = y * (1 - depth * scale / 7) - this.group.position.y * depth / 7 + Math.cos(x * 3.2 + y * 1.1 - this.currentTime * 1.65) * wave * 0.065;
-      positions[i * 3 + 2] = depth + waveHeight(x, y, this.currentTime, wave);
+      positions[i * 3 + 1] = y * (1 - depth * scale / 7) - this.group.position.y * depth / 7;
+      positions[i * 3 + 2] = depth;
     }
     if (this.picker) this.picker.rebuild(positions);
     else this.picker = new ParticlePicker(positions);
-    this.pickDepth = amount; this.pickVolume = volume; this.pickWave = wave;
+    this.pickDepth = amount; this.pickVolume = volume;
     this.pickTime = this.interactionTime; this.pickDirty = false;
   }
 
@@ -662,6 +657,31 @@ export class ParticleField {
     this.pointerActive = 0;
     this.lastBrush = null;
     this.brushVelocity.set(0, 0);
+  }
+
+  get needsAnimation() {
+    return this.pointerActive || this.orbitDragging || !this.orbit.settled ||
+      this.exploding || this.windy || this.effects.wave ||
+      this.interactionTime - this.lastFlightTime < 7;
+  }
+
+  // Keep Detail's particle count. Reduce fill rate only when sustained frame
+  // pressure requires it, then recover gradually on a faster device.
+  adaptResolution(frameMean) {
+    const ratio = this.renderer.getPixelRatio();
+    const direction = frameMean > 26 ? -1 : frameMean < 18.5 ? 1 : 0;
+    if (!direction || Math.sign(this.resolutionPressure) !== direction)
+      this.resolutionPressure = 0;
+    this.resolutionPressure += direction;
+    let next = ratio;
+    if (this.resolutionPressure <= -90) next = Math.max(Math.min(0.85, this.maxPixelRatio), ratio * 0.85);
+    else if (this.resolutionPressure >= 360) next = Math.min(this.maxPixelRatio, ratio + 0.1);
+    else return false;
+    this.resolutionPressure = 0;
+    if (Math.abs(next - ratio) < 0.01) return false;
+    this.renderer.setPixelRatio(next);
+    this.uniforms.uPixelRatio.value = next;
+    return true;
   }
 
   render(delta, time) {
@@ -708,9 +728,7 @@ export class ParticleField {
       const elapsed = this.interactionTime - this.pickTime;
       if (this.pickDirty || !this.picker || elapsed > 0.07 && (
         Math.abs(this.pickDepth - this.uniforms.uDepth.value) > 0.003 ||
-        Math.abs(this.pickVolume - this.uniforms.uVolume.value) > 0.003 ||
-        Math.abs(this.pickWave - this.uniforms.uWave.value) > 0.003 ||
-        this.uniforms.uWave.value > 0.001
+        Math.abs(this.pickVolume - this.uniforms.uVolume.value) > 0.003
       )) this.rebuildPicker();
       const start = this.lastBrush || this.pointer;
       const dx = this.pointer.x - start.x, dy = this.pointer.y - start.y;
@@ -724,20 +742,29 @@ export class ParticleField {
       this.sampleNdc.copy(start).add(this.pointer).multiplyScalar(0.5);
       this.projectPointer(this.sampleNdc);
       const radius = 54 + Math.hypot(dx * this.width / 2, dy * this.height / 2) / 2;
-      let first = Infinity, last = -1;
+      this.flightBlocks.fill(0);
       this.picker.query(this.localRay, this.pickMatrix, this.sampleNdc, this.width, this.height, radius, (index, falloff) => {
         if (this.flightBrush.kick(index, falloff, this.flowVelocity.x, this.flowVelocity.y, this.flowVelocity.z,
           this.interactionTime, delta)) {
-          first = Math.min(first, index * 4); last = Math.max(last, index * 4 + 4);
+          this.flightBlocks[index >>> 7] = 1;
         }
-      }, { from: start, to: this.pointer, radius: 54 });
-      if (last >= 0) {
-        this.flightAttribute.clearUpdateRanges();
-        this.flightAttribute.addUpdateRange(first, last - first);
-        this.flightAttribute.needsUpdate = true;
-        this.flightZAttribute.clearUpdateRanges();
-        this.flightZAttribute.addUpdateRange(first / 4, (last - first) / 4);
-        this.flightZAttribute.needsUpdate = true;
+      }, { from: start, to: this.pointer, radius: 54 }, {
+        wave: this.uniforms.uWave.value, time,
+        source: this.points.geometry.getAttribute("position").array,
+      });
+      this.flightAttribute.clearUpdateRanges();
+      this.flightZAttribute.clearUpdateRanges();
+      let changed = false;
+      for (let block = 0; block < this.flightBlocks.length; block++) {
+        if (!this.flightBlocks[block]) continue;
+        const start = block * 128, count = Math.min(128, this.count - start);
+        this.flightAttribute.addUpdateRange(start * 4, count * 4);
+        this.flightZAttribute.addUpdateRange(start, count);
+        changed = true;
+      }
+      if (changed) {
+        this.flightAttribute.needsUpdate = this.flightZAttribute.needsUpdate = true;
+        this.lastFlightTime = this.interactionTime;
       }
       if (!this.lastBrush) this.lastBrush = new Vector2();
       this.lastBrush.copy(this.pointer);

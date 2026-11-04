@@ -1372,6 +1372,9 @@ kbd {
   .interaction-hint { display: none; }
 }
 .scene-dock { display: contents; }
+.pwa-settings { margin-top: 12px; color: #9eb1a6; font-size: 11px; line-height: 1.5; }
+.pwa-settings p { margin: 0; }
+.pwa-settings .text-button { margin-top: 6px; }
 @media (min-width: 901px) {
   .scene-bottom { width: calc(100% - 378px); max-width: calc(100% - 378px); }
   .scene-dock {
