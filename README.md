@@ -15,12 +15,13 @@ Application Three.js qui recompose une photo à partir d’un ciel de particules
 - Galerie locale de 8 photos maximum : import multiple et glisser-déposer, vignettes, précédent/suivant et suppression. La galerie dure le temps de l’onglet.
 - Transformation entre les photos : les particules quittent leur position, traversent l’espace et changent de couleur pour recomposer la suivante, avec conservation des proportions et de la transparence. La transition peut être mise en pause.
 - Souffle de vent : un front traverse l’image, emporte les grains en traînées puis les laisse se reformer. Son intensité se règle avec celle des autres effets.
-- Explosion en volume depuis le bouton ou par un clic/toucher bref sur l’image, suivie d’un retour progressif à la photo.
+- Explosion en tempête de poussière depuis le bouton ou par un clic/toucher bref sur l’image : trois courants en volume, dont un à contre-sens, rafales avec accélérations et décélérations, soulèvements et petits remous. L’animation dure 14 secondes puis reforme doucement la photo. Chaque déclenchement varie les courants ; pause et intensité restent disponibles.
 - Rejouer, pause/reprise, Constellation et recomposer.
 - Durée de formation et dérive des étoiles réglables. Constellation ramène la photo à un nuage d’étoiles ancré dans l’espace, explorable en rotation et en zoom.
 - Densité Fluide / Auto / Détail, avec **Détail par défaut** (jusqu’à 240 000 particules sur ordinateur et 110 000 sur mobile). Auto réduit la densité lorsque le rythme d’affichage devient trop faible.
 - Zoom libre par déplacement réel de la caméra avec la molette ou le pincement, sans butées de grossissement imposées. Déplacement latéral par clic droit glissé sur PC ou glissement à deux doigts sur mobile. Vue de face restaure position, orientation et zoom ; plein écran lorsque le navigateur le permet.
 - Sur PC, les effets et commandes de lecture sont réunis sur une seule ligne.
+- Bouton œil pour masquer tous les menus, le statut et le pied de page, et profiter d’un cadrage centré utilisant l’espace libéré. Un œil discret permet de les réafficher sur téléphone comme sur PC ; H bascule l’interface et Échap la restaure. Rotation, zoom et clic d’explosion restent utilisables. Le plein écran du navigateur reste disponible séparément avec F.
 - Interface mobile compacte : statut sous le titre, effets sur une bande horizontale, lecture/pause/dispersion en pictogrammes, choix Tourner/Disperser et ajout de photos sur la même rangée. Le cadrage de la photo utilise l’espace réel entre l’en-tête et les commandes ; les réglages restent dans un panneau repliable.
 - Respect de la préférence de réduction des mouvements, suspension quand l’onglet est masqué, signalement des pertes de contexte WebGL.
 - PWA installable sur ordinateur et téléphone : icônes dédiées, ouverture sans barre de navigateur et bouton d’installation lorsque le navigateur le propose. Sur iPhone/iPad : Partager → Sur l’écran d’accueil.

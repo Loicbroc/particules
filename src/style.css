@@ -15,6 +15,24 @@ body {
   margin: 0;
   overflow: hidden;
 }
+.interface-hidden .header,
+.interface-hidden .controls,
+.interface-hidden .scene-status,
+.interface-hidden .scene-bottom,
+.interface-hidden .footer {
+  visibility: hidden;
+  pointer-events: none;
+}
+.interface-hidden .ambient { opacity: 0; }
+.interface-hidden #interface-button {
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 0.25;
+  background: #070a0f66;
+  border-color: transparent;
+}
+.interface-hidden #interface-button:hover,
+.interface-hidden #interface-button:focus-visible { opacity: 1; }
 button,
 input,
 a {

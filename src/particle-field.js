@@ -22,8 +22,8 @@ import { FlightBrush, updateFlowVelocity } from "./flight-brush.js";
 import { remapCloud } from "./photo-morph.js";
 import { OrbitView } from "./orbit-view.js";
 import { ParticlePicker } from "./particle-picker.js";
+import { STORM_DURATION, stormEnvelope, stormCurrent, dustStormShader } from "./dust-storm.js";
 import {
-  explosionEnvelope,
   sampleDepth,
   validateDepthMap,
   waveHeight,
@@ -49,6 +49,11 @@ export const vertexShader = /* glsl */ `
   uniform float uVolume;
   uniform float uWave;
   uniform float uBurst;
+  uniform float uStormAge;
+  uniform float uStormStrength;
+  uniform float uStormSeed;
+  uniform vec3 uStormPhase;
+  uniform vec3 uStormGust;
   uniform float uWorldScale;
   uniform vec2 uCenter;
   uniform float uMorph;
@@ -67,6 +72,8 @@ export const vertexShader = /* glsl */ `
   varying vec2 vFlow;
   varying float vSky;
   varying float vSparkle;
+
+  ${dustStormShader}
 
   void main() {
     float formation = clamp((uProgress - 0.12) / 0.88, 0.0, 1.0);
@@ -94,6 +101,8 @@ export const vertexShader = /* glsl */ `
     float duration = 4.4 + aRandom.z * 2.4;
     float airborne = 0.0;
     float flightTrail = 0.0;
+    float stormTrail = 0.0;
+    float stormMix = 0.0;
     vec2 flowDirection = vec2(1.0, 0.0);
     if (aFlight.y > 0.0 && age >= 0.0 && age < duration) {
       // Integrate a decaying velocity analytically: the mouse lends its actual
@@ -117,12 +126,17 @@ export const vertexShader = /* glsl */ `
       flightTrail = min(0.8, length(vec3(aFlight.zw, aFlightZ)) * 0.12) * floatIn * returnToImage * aFlight.y;
     }
     if (uBurst > 0.0) {
-      float theta = aRandom.x * 6.2831853;
-      float zDirection = aRandom.y * 2.0 - 1.0;
-      float ring = sqrt(max(0.0, 1.0 - zDirection * zDirection));
-      vec3 direction = vec3(cos(theta) * ring, sin(theta) * ring, zDirection * 0.38);
-      pos += direction * (1.7 + aRandom.z * 2.3) * uBurst * p;
-      airborne = max(airborne, min(1.0, uBurst));
+      float phase = aRandom.w < 0.3333333 ? uStormPhase.x : aRandom.w < 0.6666667 ? -uStormPhase.y : uStormPhase.z;
+      float gust = aRandom.w < 0.3333333 ? uStormGust.x : aRandom.w < 0.6666667 ? uStormGust.y : uStormGust.z;
+      float launch = smoothstep(aRandom.z * 0.32, aRandom.z * 0.32 + 0.65, uStormAge);
+      stormMix = uBurst * launch * p;
+      pos = mix(pos, dustStormPosition(pos, aRandom, uStormAge, phase, gust, uStormStrength, uAspect, uStormSeed), stormMix);
+      float theta = aRandom.x * 6.2831853 + phase * (0.8 + aRandom.z * 0.45);
+      vec3 tangent = vec3(-sin(theta), cos(theta * 1.1) * 0.2, cos(theta) * 0.85);
+      vec2 screenFlow = (modelViewMatrix * vec4(tangent, 0.0)).xy;
+      flowDirection = normalize(screenFlow + vec2(0.00001, 0.0));
+      stormTrail = (0.12 + gust * 0.32) * stormMix;
+      airborne = max(airborne, stormMix);
     }
     // A front crosses the photo. Every grain departs at its own time, drifts
     // downstream and settles back; no radial hole or permanent displacement.
@@ -153,7 +167,7 @@ export const vertexShader = /* glsl */ `
     mvPosition.xy += vec2(sin(aRandom.w * 6.2831853), cos(aRandom.z * 6.2831853)) * sin(p * 3.14159265) * 0.18 * uDrift * uMotion * morph;
     gl_Position = projectionMatrix * mvPosition;
     float depthFootprint = mix(1.0, (7.0 - depth * uWorldScale) / 7.0, p);
-    float streak = max(wind, flightTrail);
+    float streak = max(wind, max(flightTrail, stormTrail));
     float fromFootprint = (7.0 - aFromPosition.z * uWorldScale) / 7.0;
     float photoSize = mix(uFromSize * fromFootprint, uSize * depthFootprint, morph) * uPixelRatio * (7.0 / max(0.3, -mvPosition.z)) * mix(1.0, 0.7, airborne) * (1.0 + streak * 1.6);
     float starSeed = fract(aRandom.w * 19.19 + aRandom.z * 73.13);
@@ -166,9 +180,10 @@ export const vertexShader = /* glsl */ `
     float starVisible = 1.0 - step(uStarFraction, starSeed);
     float reveal = mix(starVisible, 1.0, smoothstep(0.18, 0.9, p));
     vOpacity = mix(aFromOpacity, aOpacity, morph) * mix(1.0, reveal, morph) * mix(0.8, 1.0, p);
+    vOpacity *= mix(1.0, 0.32 + aRandom.z * 0.35, stormMix);
     vFormed = p * (1.0 - airborne * 0.45) * (1.0 - crossing * 0.6 * uMorphMotion);
     vWind = streak;
-    vFlow = wind >= flightTrail ? vec2(1.0, 0.0) : flowDirection;
+    vFlow = wind >= max(flightTrail, stormTrail) ? vec2(1.0, 0.0) : flowDirection;
     vSky = skyWeight;
     vSparkle = step(0.93, magnitude) * skyWeight;
   }
@@ -269,6 +284,7 @@ export class ParticleField {
     this.reducedMotion = reducedMotion;
     this.currentTime = 0;
     this.explosionStart = -100;
+    this.stormSeed = 0;
     this.windStart = -100;
     this.depthMap = null;
     this.sourceImage = null;
@@ -288,6 +304,11 @@ export class ParticleField {
       uVolume: { value: 1.65 },
       uWave: { value: 0 },
       uBurst: { value: 0 },
+      uStormAge: { value: -100 },
+      uStormStrength: { value: 1 },
+      uStormSeed: { value: 0 },
+      uStormPhase: { value: new Vector3() },
+      uStormGust: { value: new Vector3() },
       uWorldScale: { value: 1 },
       uCenter: { value: new Vector2() },
       uMorph: { value: 1 },
@@ -484,14 +505,15 @@ export class ParticleField {
     const unit = visibleHeight / height;
     this.uniforms.uViewport.value.set(visibleHeight * width / height, visibleHeight);
     const desktop = width > 900;
-    const sidebar = desktop ? (width > 1100 ? 330 : 290) : 0;
+    const immersive = document.body.classList.contains("interface-hidden");
+    const sidebar = desktop && !immersive ? (width > 1100 ? 330 : 290) : 0;
     const availableWidth = width - sidebar - (desktop ? 70 : 34);
     const header = document.querySelector(".header")?.getBoundingClientRect();
     const status = desktop && document.querySelector(".scene-status")?.getBoundingClientRect();
     const dock = document.querySelector(".scene-bottom")?.getBoundingClientRect();
     const sceneTop = this.container.getBoundingClientRect().top;
-    const imageTop = Math.max(desktop ? 110 : 68, (header?.bottom || 68) - sceneTop, (status?.bottom || 0) - sceneTop) + (desktop ? 18 : 12);
-    const imageBottom = (dock?.top ? dock.top - sceneTop : height - 130) - (desktop ? 18 : 12);
+    const imageTop = immersive ? 20 : Math.max(desktop ? 110 : 68, (header?.bottom || 68) - sceneTop, (status?.bottom || 0) - sceneTop) + (desktop ? 18 : 12);
+    const imageBottom = immersive ? height - 20 : (dock?.top ? dock.top - sceneTop : height - 130) - (desktop ? 18 : 12);
     const availableHeight = imageBottom - imageTop;
     const imageWidth = Math.min(
       availableWidth,
@@ -540,7 +562,7 @@ export class ParticleField {
       ((clientX - bounds.left) / bounds.width) * 2 - 1,
       (-(clientY - bounds.top) / bounds.height) * 2 + 1,
     );
-    const sidebar = this.width > 900 ? (this.width > 1100 ? 330 : 290) : 0;
+    const sidebar = this.width > 900 && !document.body.classList.contains("interface-hidden") ? (this.width > 1100 ? 330 : 290) : 0;
     this.viewTarget.set(
       MathUtils.clamp(
         (clientX - bounds.left - (bounds.width + sidebar) / 2) /
@@ -646,11 +668,12 @@ export class ParticleField {
   explode() {
     if (!this.points || this.uniforms.uProgress.value < 0.97) return false;
     this.explosionStart = this.currentTime;
+    this.stormSeed = Math.random() * Math.PI * 2;
     return true;
   }
   get exploding() {
     const age = this.currentTime - this.explosionStart;
-    return age >= 0 && age < 5.8;
+    return age >= 0 && age < STORM_DURATION;
   }
 
   clearPointer() {
@@ -705,9 +728,18 @@ export class ParticleField {
       5,
       delta,
     );
-    this.uniforms.uBurst.value =
-      explosionEnvelope(time - this.explosionStart) *
-      (0.45 + this.effects.intensity * 0.85);
+    const stormAge = time - this.explosionStart;
+    this.uniforms.uBurst.value = stormEnvelope(stormAge);
+    this.uniforms.uStormAge.value = stormAge;
+    this.uniforms.uStormSeed.value = this.stormSeed;
+    this.uniforms.uStormStrength.value = (0.55 + this.effects.intensity * 0.95) * (this.reducedMotion ? 0.35 : 1);
+    if (this.exploding) {
+      for (let lane = 0; lane < 3; lane++) {
+        const current = stormCurrent(stormAge, lane, this.stormSeed, this.reducedMotion);
+        this.uniforms.uStormPhase.value.setComponent(lane, current.angle);
+        this.uniforms.uStormGust.value.setComponent(lane, current.gust);
+      }
+    }
     const orbitX = this.reducedMotion ? 0 : Math.sin(time * 0.32) * 0.5;
     const orbitY = this.reducedMotion ? 0 : Math.cos(time * 0.25) * 0.28;
     const viewX = this.pointerActive ? this.viewTarget.x : orbitX;
