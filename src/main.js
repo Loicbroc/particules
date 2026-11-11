@@ -5,6 +5,7 @@ import { createArtisticDepth } from "./artistic-depth.js";
 import { morphDuration } from "./photo-morph.js";
 import { preparePhoto } from "./photo-source.js";
 import { setupPWA } from "./pwa.js";
+import { setupImmersive } from "./immersive.js";
 
 const elements = new Map();
 const $ = (id) => {
@@ -257,7 +258,7 @@ function updateUI() {
     label = "L’image se libère";
     phase = "dispersing";
   } else if (field?.exploding) {
-    label = "L’image éclate dans l’espace";
+    label = "Une tempête de poussière emporte l’image";
     phase = "exploding";
   } else if (field?.windy) {
     label = "Un souffle emporte les particules";
@@ -841,6 +842,11 @@ function tick(now) {
 
 async function start() {
   setupUI();
+  setupImmersive({ onChange: () => {
+    closeSettings();
+    field?.clearPointer();
+    field?.resize();
+  } });
   setupPWA({ toast });
   try {
     field = new ParticleField($("scene"), {

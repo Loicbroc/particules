@@ -1,8 +1,4 @@
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const smoothstep = (min, max, value) => {
-  const t = clamp((value - min) / (max - min), 0, 1);
-  return t * t * (3 - 2 * t);
-};
 
 export function sampleDepth(map, u, v) {
   if (!map) return 0.5;
@@ -25,11 +21,6 @@ export function sampleDepth(map, u, v) {
 
 export function waveHeight(x, y, time, amplitude) {
   return Math.sin(x * 3.2 + y * 1.1 - time * 1.65) * amplitude;
-}
-
-export function explosionEnvelope(age) {
-  if (age < 0 || age >= 5.8) return 0;
-  return smoothstep(0, 0.8, age) * (1 - smoothstep(1.1, 5.8, age));
 }
 
 export function validateDepthMap(map) {
