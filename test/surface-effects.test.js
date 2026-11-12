@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleDepth, validateDepthMap, waveHeight } from "../src/surface-effects.js";
-import { STORM_DURATION, stormEnvelope, stormCurrent } from "../src/dust-storm.js";
+import { DustStorm, STORM_RETURN_DURATION, stormEnvelope, stormCurrent } from "../src/dust-storm.js";
 
 test("depth interpolation respects image corners and the neutral fallback", () => {
   const map = { width: 2, height: 2, data: new Uint8Array([0, 255, 255, 0]) };
@@ -12,16 +12,45 @@ test("depth interpolation respects image corners and the neutral fallback", () =
   assert.throws(() => validateDepthMap({ width: 2, height: 2, data: [0] }));
 });
 
-test("the storm lifts off smoothly, remains alive and returns exactly to the photograph", () => {
+test("the storm continues until explicitly stopped, then returns smoothly to the photograph", () => {
   assert.equal(stormEnvelope(-1), 0);
   assert.equal(stormEnvelope(0), 0);
   assert.ok(stormEnvelope(0.4) > 0 && stormEnvelope(0.4) < 1);
   assert.equal(stormEnvelope(1), 1);
   assert.equal(stormEnvelope(9), 1);
-  assert.ok(stormEnvelope(12) < stormEnvelope(11));
-  assert.equal(stormEnvelope(STORM_DURATION), 0);
+  assert.equal(stormEnvelope(14), 1);
+  assert.equal(stormEnvelope(86400), 1);
   assert.ok(stormEnvelope(0.001) < 0.00001);
-  assert.ok(stormEnvelope(STORM_DURATION - 0.001) < 0.00001);
+  const storm = new DustStorm();
+  storm.start(10);
+  for (const time of [24, 70, 3610, 86410]) {
+    assert.equal(storm.sample(time).active, true);
+    assert.equal(storm.sample(time).amount, 1);
+  }
+  assert.equal(storm.stop(86410), true);
+  assert.equal(storm.running, false);
+  assert.equal(storm.sample(86410).amount, 1);
+  assert.equal(storm.sample(86410 + STORM_RETURN_DURATION / 2).stopping, true);
+  assert.ok(storm.sample(86410 + STORM_RETURN_DURATION / 2).amount < 1);
+  assert.equal(storm.sample(86410 + STORM_RETURN_DURATION + 0.001).amount, 0);
+  assert.equal(storm.sample(86410 + STORM_RETURN_DURATION + 0.001).active, false);
+});
+
+test("stopping during takeoff cannot increase the dust displacement or restart its return", () => {
+  const storm = new DustStorm();
+  assert.equal(storm.sample(0).active, false);
+  storm.start(0);
+  const before = storm.sample(0.3).amount;
+  storm.stop(0.3);
+  assert.equal(storm.sample(0.3).amount, before);
+  assert.ok(storm.sample(0.4).amount < before);
+  assert.equal(storm.stop(0.5), false);
+  assert.equal(storm.sample(3).amount, 0);
+  storm.start(4);
+  assert.equal(storm.sample(4).amount, 0);
+  assert.equal(storm.running, true);
+  storm.reset();
+  assert.equal(storm.sample(100).active, false);
 });
 
 test("currents accelerate and decelerate continuously with distinct gust patterns", () => {

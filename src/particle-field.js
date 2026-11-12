@@ -22,7 +22,7 @@ import { FlightBrush, updateFlowVelocity } from "./flight-brush.js";
 import { remapCloud } from "./photo-morph.js";
 import { OrbitView } from "./orbit-view.js";
 import { ParticlePicker } from "./particle-picker.js";
-import { STORM_DURATION, stormEnvelope, stormCurrent, dustStormShader } from "./dust-storm.js";
+import { DustStorm, stormCurrent, dustStormShader } from "./dust-storm.js";
 import {
   sampleDepth,
   validateDepthMap,
@@ -283,7 +283,7 @@ export class ParticleField {
     this.viewAmount = 0;
     this.reducedMotion = reducedMotion;
     this.currentTime = 0;
-    this.explosionStart = -100;
+    this.storm = new DustStorm();
     this.stormSeed = 0;
     this.windStart = -100;
     this.depthMap = null;
@@ -430,7 +430,6 @@ export class ParticleField {
       this.sourceImage = image;
       this.depthMap = null;
       this.effects.relief = false;
-      this.explosionStart = -100;
       this.windStart = -100;
     }
     const geometry = new BufferGeometry();
@@ -653,7 +652,7 @@ export class ParticleField {
     this.effects.intensity = MathUtils.clamp(value, 0, 1);
   }
   resetExplosion() {
-    this.explosionStart = -100;
+    this.storm.reset();
     this.windStart = -100;
   }
   blowWind() {
@@ -666,15 +665,15 @@ export class ParticleField {
     return age >= 0 && age < 5.8;
   }
   explode() {
-    if (!this.points || this.uniforms.uProgress.value < 0.97) return false;
-    this.explosionStart = this.currentTime;
+    if (!this.points || this.uniforms.uProgress.value < 0.97 || this.storm.sample(this.currentTime).stopping) return false;
+    this.storm.start(this.currentTime);
     this.stormSeed = Math.random() * Math.PI * 2;
     return true;
   }
-  get exploding() {
-    const age = this.currentTime - this.explosionStart;
-    return age >= 0 && age < STORM_DURATION;
-  }
+  stopExplosion() { return this.storm.stop(this.currentTime); }
+  get stormRunning() { return this.storm.running; }
+  get stormStopping() { return this.storm.sample(this.currentTime).stopping; }
+  get exploding() { return this.storm.sample(this.currentTime).active; }
 
   clearPointer() {
     this.pointerActive = 0;
@@ -728,8 +727,9 @@ export class ParticleField {
       5,
       delta,
     );
-    const stormAge = time - this.explosionStart;
-    this.uniforms.uBurst.value = stormEnvelope(stormAge);
+    const storm = this.storm.sample(time);
+    const stormAge = storm.age;
+    this.uniforms.uBurst.value = storm.amount;
     this.uniforms.uStormAge.value = stormAge;
     this.uniforms.uStormSeed.value = this.stormSeed;
     this.uniforms.uStormStrength.value = (0.55 + this.effects.intensity * 0.95) * (this.reducedMotion ? 0.35 : 1);

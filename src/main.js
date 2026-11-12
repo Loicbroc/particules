@@ -6,6 +6,7 @@ import { morphDuration } from "./photo-morph.js";
 import { preparePhoto } from "./photo-source.js";
 import { setupPWA } from "./pwa.js";
 import { setupImmersive } from "./immersive.js";
+import { Slideshow, slideshowPhotos } from "./slideshow.js";
 
 const elements = new Map();
 const $ = (id) => {
@@ -38,6 +39,7 @@ const state = {
   morph: null,
 };
 const depthEstimator = new DepthEstimator();
+const slideshow = new Slideshow();
 let field;
 let toastTimer;
 let uiTime = 0;
@@ -46,6 +48,7 @@ let frameDeadline = lastFrame;
 let frameId;
 let effectUIKey = "";
 let uiKey = "";
+let slideshowUIKey = "";
 
 function toast(message) {
   clearTimeout(toastTimer);
@@ -68,9 +71,10 @@ function setLoading(value, label = "Les couleurs prennent place…") {
 }
 
 function updateEffectUI() {
+  updateSlideshowUI();
   const key = [state.loading, Boolean(state.image), Boolean(state.morph), state.volume,
     state.relief, state.depthBusy, state.image?.depthKind, state.progress >= 0.999,
-    field?.exploding, field?.windy, state.gallery.length].join("|");
+    field?.exploding, field?.stormRunning, field?.stormStopping, field?.windy, state.gallery.length].join("|");
   if (key === effectUIKey) return;
   effectUIKey = key;
   const unavailable = state.loading || !state.image || Boolean(state.morph);
@@ -88,8 +92,14 @@ function updateEffectUI() {
   $("wave-button").disabled = unavailable;
   $("wave-button").setAttribute("aria-pressed", String(state.wave));
   $("wave-button").classList.toggle("active", state.wave);
-  $("burst-button").disabled = unavailable || state.progress < 0.999;
+  $("burst-button").disabled = !field?.stormRunning && (unavailable || state.progress < 0.999 || Boolean(field?.stormStopping));
   $("burst-button").classList.toggle("active", Boolean(field?.exploding));
+  $("burst-button").setAttribute("aria-pressed", String(Boolean(field?.stormRunning)));
+  const burstLabel = field?.stormRunning ? "Arrêter tempête" : field?.stormStopping ? "Retour photo…" : "Explosion";
+  $("burst-label").textContent = burstLabel;
+  $("burst-button").setAttribute("aria-label", field?.stormRunning ? "Arrêter la tempête et reformer la photo" : "Déclencher la tempête de poussière");
+  $("burst-button").title = field?.stormRunning ? "Arrêter la tempête et reformer la photo" : "Tempête continue jusqu’à son arrêt manuel";
+  $("burst-icon").setAttribute("href", field?.stormRunning ? "#i-stop" : "#i-burst");
   $("wind-button").disabled = unavailable || state.progress < 0.999;
   $("wind-button").classList.toggle("active", Boolean(field?.windy));
   const busy = state.loading || Boolean(state.morph);
@@ -99,6 +109,57 @@ function updateEffectUI() {
     button.disabled = busy;
   $("previous-photo").disabled = busy || state.gallery.length < 2;
   $("next-photo").disabled = busy || state.gallery.length < 2;
+}
+
+function updateSlideshowUI() {
+  const photos = slideshowPhotos(state.gallery);
+  const index = photos.indexOf(state.image);
+  const key = [slideshow.running, slideshow.delay, slideshow.remaining, state.paused,
+    state.loading, Boolean(state.morph), Boolean(state.transition), state.progress >= 0.999,
+    field?.exploding, field?.contextLost, Boolean(state.image), photos.length, index].join("|");
+  if (key === slideshowUIKey) return;
+  slideshowUIKey = key;
+  $("slideshow-button").disabled = !slideshow.running && (state.loading || !state.image || photos.length < 2);
+  $("slideshow-button").classList.toggle("active", slideshow.running);
+  $("slideshow-button").setAttribute("aria-pressed", String(slideshow.running));
+  const action = slideshow.running ? "Arrêter le diaporama" : "Démarrer le diaporama";
+  $("slideshow-button").setAttribute("aria-label", action);
+  $("slideshow-button").title = action;
+  $("slideshow-label").textContent = slideshow.running ? "Arrêter diapo" : "Diaporama";
+  $("slideshow-icon").setAttribute("href", slideshow.running ? "#i-stop" : "#i-slideshow");
+  let label = photos.length < 2 ? "Ajoutez au moins deux photos pour le diaporama."
+    : `${slideshow.delay} s par photo · transitions automatiques.`;
+  if (slideshow.running) {
+    label = state.paused ? "Diaporama en pause."
+      : field?.exploding ? "En attente du retour à la photo."
+      : state.loading || state.morph || state.transition || state.progress < 0.999 || field?.contextLost
+        ? "Préparation de la photo…"
+        : `${index < 0 ? "Image d’exemple" : `Photo ${index + 1} / ${photos.length}`} · suivante dans ${slideshow.remaining} s`;
+  }
+  $("slideshow-status").textContent = label;
+}
+
+function applySlideshowDelay() {
+  slideshow.setDelay($("slideshow-delay").value);
+  $("slideshow-delay").value = String(slideshow.delay);
+  updateSlideshowUI();
+}
+
+function toggleSlideshow() {
+  if (slideshow.running) {
+    slideshow.stop();
+    updateSlideshowUI();
+    return;
+  }
+  const photos = slideshowPhotos(state.gallery);
+  if (!field || state.loading || photos.length < 2) return;
+  applySlideshowDelay();
+  state.paused = false;
+  field.stopExplosion();
+  if (!photos.includes(state.image) && !state.morph) selectPhoto(photos[0], { automatic: true });
+  if (!state.morph && state.progress < 0.999) form();
+  slideshow.start();
+  updateUI();
 }
 
 async function toggleRelief() {
@@ -177,10 +238,18 @@ function toggleWave() {
 }
 
 function triggerExplosion() {
-  if (!state.image || state.loading || state.morph || state.progress < 0.999) return;
+  if (field?.stormRunning) {
+    state.paused = false;
+    field.stopExplosion();
+    slideshow.resetDelay();
+    updateUI();
+    return;
+  }
+  if (!state.image || state.loading || state.morph || state.progress < 0.999 || field?.stormStopping) return;
   state.paused = false;
   field.clearPointer();
   field.explode();
+  slideshow.resetDelay();
   updateUI();
 }
 
@@ -258,7 +327,7 @@ function updateUI() {
     label = "L’image se libère";
     phase = "dispersing";
   } else if (field?.exploding) {
-    label = "Une tempête de poussière emporte l’image";
+    label = field.stormStopping ? "La poussière se repose sur l’image" : "Une tempête de poussière emporte l’image";
     phase = "exploding";
   } else if (field?.windy) {
     label = "Un souffle emporte les particules";
@@ -300,6 +369,7 @@ function replay() {
   field.setZoom(1);
   field.clearPointer();
   field.resetExplosion();
+  slideshow.resetDelay();
   if (state.progress < 0.02) form();
   else transitionTo(0, reducedMotion ? 0.3 : 1.15, form);
 }
@@ -330,6 +400,7 @@ function showSettings() {
 }
 
 function renderGallery() {
+  if (slideshowPhotos(state.gallery).length < 2) slideshow.stop();
   const container = $("photo-gallery");
   container.replaceChildren();
   state.gallery.forEach((photo, index) => {
@@ -354,11 +425,12 @@ function renderGallery() {
   updateEffectUI();
 }
 
-function activatePhoto(photo) {
+function activatePhoto(photo, { closeDrawer = true } = {}) {
   const morph = Boolean(state.image && state.progress >= 0.999);
   field.setImage(photo.image, budget(1), { morph });
   depthEstimator.cancel();
   state.image = photo;
+  slideshow.resetDelay();
   state.relief = false;
   state.depthBusy = false;
   if (photo.depthMap) field.setDepthMap(photo.depthMap);
@@ -384,15 +456,15 @@ function activatePhoto(photo) {
   $("demo-button").hidden = photo.isDemo;
   $("scene").setAttribute("aria-label", `Photo « ${photo.name} » reconstruite par des particules interactives`);
   updateCount();
-  closeSettings();
+  if (closeDrawer) closeSettings();
   if (!morph && !reducedMotion) transitionTo(1, state.duration);
   else updateUI();
 }
 
-function selectPhoto(photo) {
+function selectPhoto(photo, { automatic = false } = {}) {
   if (!field || state.loading || state.morph || photo === state.image) return;
   try {
-    activatePhoto(photo);
+    activatePhoto(photo, { closeDrawer: !automatic });
     renderGallery();
   } catch (error) {
     console.warn("Changement de photo :", error);
@@ -521,6 +593,8 @@ async function toggleFullscreen() {
 }
 
 function setupUI() {
+  $("slideshow-button").addEventListener("click", toggleSlideshow);
+  $("slideshow-delay").addEventListener("change", applySlideshowDelay);
   for (const [id, mode] of [["touch-rotate", "rotate"], ["touch-wind", "wind"]]) {
     $(id).addEventListener("click", () => {
       state.touchMode = mode;
@@ -583,7 +657,11 @@ function setupUI() {
       (!state.transition && state.progress < 0.5)
     )
       form();
-    else transitionTo(0, reducedMotion ? 0.3 : 2.2);
+    else {
+      slideshow.stop();
+      field.resetExplosion();
+      transitionTo(0, reducedMotion ? 0.3 : 2.2);
+    }
   });
   for (const input of document.querySelectorAll("#duration, #drift")) {
     const refresh = () => {
@@ -812,6 +890,18 @@ function tick(now) {
   }
   field.uniforms.uProgress.value = state.progress;
   field.render(delta, state.time);
+  if (slideshow.running && !state.paused && state.image?.isDemo && !state.loading &&
+    !state.morph && !state.transition && !field.contextLost && state.progress >= 0.999) {
+    const first = slideshowPhotos(state.gallery)[0];
+    if (first) selectPhoto(first, { automatic: true });
+  }
+  if (slideshow.running && slideshow.advance(Math.max(0, rawDelta / 1000),
+    !state.paused && !state.loading && !state.morph && !state.transition &&
+    !field.contextLost && !field.exploding && state.progress >= 0.999)) {
+    const photos = slideshowPhotos(state.gallery);
+    if (photos.length < 2) slideshow.stop();
+    else selectPhoto(photos[(photos.indexOf(state.image) + 1) % photos.length], { automatic: true });
+  }
   if (now - uiTime > 90) {
     updateUI();
     uiTime = now;
@@ -867,6 +957,7 @@ async function start() {
     setupPointer();
     document.addEventListener("visibilitychange", () => {
       cancelAnimationFrame(frameId);
+      slideshow.hold();
       field.clearPointer();
       if (!document.hidden) {
         lastFrame = performance.now();

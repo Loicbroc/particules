@@ -1,4 +1,4 @@
-export const STORM_DURATION = 14;
+export const STORM_RETURN_DURATION = 2.2;
 
 const smoothstep = (a, b, value) => {
   const t = Math.max(0, Math.min(1, (value - a) / (b - a)));
@@ -6,8 +6,35 @@ const smoothstep = (a, b, value) => {
 };
 
 export function stormEnvelope(age) {
-  if (age < 0 || age >= STORM_DURATION) return 0;
-  return smoothstep(0, 0.85, age) * (1 - smoothstep(10, STORM_DURATION, age));
+  return age < 0 ? 0 : smoothstep(0, 0.85, age);
+}
+
+export class DustStorm {
+  constructor() { this.reset(); }
+  reset() {
+    this.startedAt = null;
+    this.stoppedAt = null;
+    this.releaseAmount = 0;
+  }
+  get running() { return this.startedAt !== null && this.stoppedAt === null; }
+  start(time) {
+    this.startedAt = time;
+    this.stoppedAt = null;
+  }
+  stop(time) {
+    if (!this.running) return false;
+    this.releaseAmount = stormEnvelope(time - this.startedAt);
+    this.stoppedAt = time;
+    return true;
+  }
+  sample(time) {
+    if (this.startedAt === null) return { age: 0, amount: 0, active: false, stopping: false };
+    const age = Math.max(0, time - this.startedAt);
+    const stopping = this.stoppedAt !== null && time - this.stoppedAt < STORM_RETURN_DURATION;
+    const amount = this.stoppedAt === null ? stormEnvelope(age)
+      : this.releaseAmount * (1 - smoothstep(0, STORM_RETURN_DURATION, time - this.stoppedAt));
+    return { age, amount, active: this.running || stopping, stopping };
+  }
 }
 
 // Analytic clocks keep momentum continuous through gusts, at any frame rate.

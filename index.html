@@ -42,6 +42,13 @@
       <symbol id="i-play" viewBox="0 0 24 24">
         <path d="m8 5 11 7-11 7Z" />
       </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+      </symbol>
+      <symbol id="i-slideshow" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="14" rx="2" />
+        <path d="m10 8 5 3-5 3ZM9 21h6m-3-3v3" />
+      </symbol>
       <symbol id="i-scatter" viewBox="0 0 24 24">
         <path
           d="m8 8-5-5m13 5 5-5M8 16l-5 5m13-5 5 5M3 8V3h5m8 0h5v5M3 16v5h5m8 0h5v-5"
@@ -207,6 +214,14 @@
               <button id="remove-photo" class="text-button">Retirer</button>
             </div>
           </div>
+          <div class="slideshow-settings">
+            <label for="slideshow-delay">Diaporama<small>Durée par photo</small></label>
+            <div class="slideshow-delay-field">
+              <input id="slideshow-delay" type="number" min="1" max="300" step="1" value="8" inputmode="numeric" aria-describedby="slideshow-status" />
+              <span aria-hidden="true">s</span>
+            </div>
+            <p id="slideshow-status">Ajoutez au moins deux photos pour le diaporama.</p>
+          </div>
           <button id="demo-button" class="text-button" hidden>
             Revenir à l’image d’exemple
           </button>
@@ -331,12 +346,16 @@
           <button
             class="effect-button"
             id="burst-button"
-            title="Déclencher une tempête de poussière : rafales, tourbillons puis retour à l’image"
+            aria-pressed="false"
+            title="Tempête continue jusqu’à son arrêt manuel"
           >
-            <svg><use href="#i-burst" /></svg><span>Explosion</span>
+            <svg><use id="burst-icon" href="#i-burst" /></svg><span id="burst-label">Explosion</span>
           </button>
           <button class="effect-button" id="wind-button" title="Un courant emporte les particules puis l’image se reforme">
             <svg><use href="#i-wind" /></svg><span>Souffle</span>
+          </button>
+          <button class="effect-button" id="slideshow-button" aria-pressed="false" aria-label="Démarrer le diaporama" aria-describedby="slideshow-status" title="Démarrer le diaporama" disabled>
+            <svg><use id="slideshow-icon" href="#i-slideshow" /></svg><span id="slideshow-label">Diaporama</span>
           </button>
         </div>
         </div>
@@ -465,12 +484,20 @@
           les flèches : les particules voyagent et changent de couleur pour former
           la suivante. La galerie reste disponible jusqu’au rechargement de la page.
         </li>
+        <li>
+          <strong>Diaporama</strong> fait défiler automatiquement vos photos importées en boucle.
+          Ajoutez-en au moins deux et réglez la <strong>durée par photo</strong> dans les réglages
+          (de 1 à 300 secondes). Le délai commence une fois la photo formée ; les transitions
+          ne raccourcissent pas ce temps. Le bouton <strong>Arrêter diapo</strong> arrête le défilement.
+          Pause et reprise agissent aussi sur ce délai. L’image d’exemple n’entre pas dans le diaporama.
+        </li>
         <li><strong>Souffle</strong> fait passer un courant de vent dans l’image. Les grains s’envolent en traînées puis se reposent.</li>
         <li>
           <strong>Vague</strong> anime la surface. <strong>Explosion</strong>,
-          ou un clic sur l’image, lance une tempête de poussière de 14 secondes :
-          plusieurs courants tournoient, accélèrent par rafales et se calment avant de reformer la photo.
-          L’intensité se règle dans les effets 3D. Un nouveau clic relance une autre tempête.
+          ou un clic sur l’image, lance une tempête de poussière qui continue sans limite de durée.
+          Plusieurs courants tournoient et accélèrent par rafales. Le bouton <strong>Arrêter tempête</strong>,
+          ou un nouveau clic sur l’image, la calme et reforme la photo. Le bouton Pause fige le mouvement.
+          L’intensité se règle dans les effets 3D.
         </li>
         <li>
           <strong>Relief IA</strong> affiche immédiatement un relief artistique,
